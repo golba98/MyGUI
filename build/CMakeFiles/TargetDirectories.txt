@@ -1,0 +1,3 @@
+/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/gui_demo.dir
+/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/edit_cache.dir
+/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/rebuild_cache.dir
