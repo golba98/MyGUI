@@ -1182,3 +1182,336 @@ events:
       Running the CXX compiler's linker: "/usr/bin/ld" "-v"
       GNU ld version 2.46.1-1.fc44
 ...
+
+---
+events:
+  -
+    kind: "find_package-v1"
+    backtrace:
+      - "CMakeLists.txt:11 (find_package)"
+    name: "SDL3"
+    configs:
+      -
+        filename: "SDL3.cps"
+        kind: "cps"
+      -
+        filename: "sdl3.cps"
+        kind: "cps"
+      -
+        filename: "SDL3Config.cmake"
+        kind: "cmake"
+      -
+        filename: "sdl3-config.cmake"
+        kind: "cmake"
+    version_request:
+      exact: false
+    settings:
+      required: "required_explicit"
+      quiet: false
+      global: false
+      policy_scope: true
+      bypass_provider: false
+      names:
+        - "SDL3"
+      path_suffixes:
+        - ""
+      paths:
+        CMAKE_FIND_USE_CMAKE_PATH: true
+        CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+        CMAKE_FIND_USE_INSTALL_PREFIX: true
+        CMAKE_FIND_USE_PACKAGE_ROOT_PATH: true
+        CMAKE_FIND_USE_CMAKE_PACKAGE_REGISTRY: true
+        CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY: true
+        CMAKE_FIND_ROOT_PATH_MODE: "BOTH"
+    candidates:
+      -
+        path: "/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/pkgRedirects/SDL3Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/pkgRedirects/sdl3-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/pkgRedirects/lib64/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/pkgRedirects/lib64/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/pkgRedirects/lib/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/pkgRedirects/lib/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/pkgRedirects/share/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/Development/4-C++/1-MyGUI/build/CMakeFiles/pkgRedirects/share/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.kimi-code/SDL3Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.kimi-code/sdl3-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.kimi-code/lib64/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.kimi-code/lib64/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.kimi-code/lib/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.kimi-code/lib/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.kimi-code/share/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.kimi-code/share/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/SDL3Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/sdl3-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/lib64/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/lib64/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/lib/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/lib/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/npm/SDL3Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/npm/sdl3-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/npm/lib64/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/npm/lib64/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/npm/lib/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/npm/lib/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/npm/share/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.local/share/npm/share/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.bun/SDL3Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.bun/sdl3-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.bun/lib64/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.bun/lib64/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.bun/lib/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.bun/lib/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.bun/share/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.bun/share/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.cargo/SDL3Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.cargo/sdl3-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.cargo/lib64/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.cargo/lib64/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.cargo/lib/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.cargo/lib/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.cargo/share/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/home/k9-vortex/.cargo/share/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/local/SDL3Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/local/sdl3-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/local/lib64/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/local/lib64/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/local/lib/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/local/lib/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/local/share/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/local/share/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/SDL3Config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/sdl3-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "/usr/lib64/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/lib64/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/lib/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/share/cps/SDL3.cps"
+        mode: "cps"
+        reason: "no_exist"
+      -
+        path: "/usr/share/cps/sdl3.cps"
+        mode: "cps"
+        reason: "no_exist"
+    found:
+      path: "/usr/lib64/cmake/SDL3/SDL3Config.cmake"
+      mode: "config"
+      version: "3.4.16"
+    search_context:
+      ENV{PATH}:
+        - "/home/k9-vortex/.kimi-code/bin"
+        - "/home/k9-vortex/.local/bin"
+        - "/home/k9-vortex/.local/share/npm/bin"
+        - "/home/k9-vortex/.bun/bin"
+        - "/home/k9-vortex/.kimi-code/bin"
+        - "/home/k9-vortex/.local/bin"
+        - "/home/k9-vortex/.local/share/npm/bin"
+        - "/home/k9-vortex/.bun/bin"
+        - "/home/k9-vortex/.kimi-code/bin"
+        - "/home/k9-vortex/.local/bin"
+        - "/home/k9-vortex/.local/share/npm/bin"
+        - "/home/k9-vortex/.bun/bin"
+        - "/home/k9-vortex/.cargo/bin"
+        - "/usr/local/bin"
+        - "/usr/bin"
+        - "/var/lib/snapd/snap/bin"
+      CMAKE_INSTALL_PREFIX: "/usr/local"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "/usr/local"
+        - "/usr"
+        - "/"
+        - "/usr"
+        - "/usr/local"
+        - "/usr/X11R6"
+        - "/usr/pkg"
+        - "/opt"
+...

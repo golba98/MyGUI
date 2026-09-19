@@ -219,6 +219,9 @@ GUIFramework_IS_TOP_LEVEL:STATIC=ON
 //Value Computed by CMake
 GUIFramework_SOURCE_DIR:STATIC=/home/k9-vortex/Development/4-C++/1-MyGUI
 
+//The directory containing a CMake configuration file for SDL3.
+SDL3_DIR:PATH=/usr/lib64/cmake/SDL3
+
 
 ########################
 # INTERNAL cache entries
