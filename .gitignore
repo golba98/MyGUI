@@ -1,0 +1,7 @@
+'EOF'
+build/
+*.o
+*.out
+.vscode/
+.idea/
+EOF
