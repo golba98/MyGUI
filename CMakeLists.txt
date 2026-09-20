@@ -1,17 +1,23 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(GUIFramework
-    VERSION 0.1.0
-    LANGUAGES CXX
-)
+project(MyGUI LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(SDL3 REQUIRED CONFIG)
+find_package(glfw3 REQUIRED)
+find_package(OpenGL REQUIRED)
 
-add_executable(gui_demo
+add_executable(MyGUI
     src/main.cpp
+    src/Window.cpp
 )
 
-target_link_libraries(gui_demo PRIVATE SDL3::SDL3)
+target_include_directories(MyGUI PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(MyGUI PRIVATE
+    glfw
+    OpenGL::GL
+)
