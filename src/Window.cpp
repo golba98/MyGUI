@@ -1,9 +1,17 @@
 #include "gui/Window.hpp"
 
 #include <GLFW/glfw3.h>
-
 #include <stdexcept>
 #include <utility>
+
+
+namespace {
+
+void framebufferSizeCallback(GLFWwindow*, int width, int height) {
+    glViewport(0, 0, width, height);
+}
+
+} // namespace
 
 namespace gui {
 
@@ -26,14 +34,34 @@ Window::Window(int width, int height, const std::string& title) {
     }
 
     glfwMakeContextCurrent(window_);
+
+    int framebufferWidth{};
+    int framebufferHeight{};
+
+    glfwGetFramebufferSize(
+        window_,
+        &framebufferWidth,
+        &framebufferHeight
+    );
+
+    glViewport(
+        0,
+        0,
+        framebufferWidth,
+        framebufferHeight
+    );
+
+    glfwSetFramebufferSizeCallback(
+        window_,
+        framebufferSizeCallback
+    );
 }
 
 Window::~Window() {
     if (window_) {
         glfwDestroyWindow(window_);
+        glfwTerminate();
     }
-
-    glfwTerminate();
 }
 
 Window::Window(Window&& other) noexcept
