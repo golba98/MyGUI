@@ -4,15 +4,6 @@
 #include <stdexcept>
 #include <utility>
 
-
-namespace {
-
-void framebufferSizeCallback(GLFWwindow*, int width, int height) {
-    glViewport(0, 0, width, height);
-}
-
-} // namespace
-
 namespace gui {
 
 Window::Window(int width, int height, const std::string& title) {
@@ -35,6 +26,13 @@ Window::Window(int width, int height, const std::string& title) {
 
     glfwMakeContextCurrent(window_);
 
+    glfwSetWindowUserPointer(window_, this);
+    glfwSetFramebufferSizeCallback(
+        window_,
+        &Window::framebufferSizeCallback
+    );
+
+    // Query the real framebuffer size; it may not match width/height on HiDPI.
     int framebufferWidth{};
     int framebufferHeight{};
 
@@ -44,17 +42,7 @@ Window::Window(int width, int height, const std::string& title) {
         &framebufferHeight
     );
 
-    glViewport(
-        0,
-        0,
-        framebufferWidth,
-        framebufferHeight
-    );
-
-    glfwSetFramebufferSizeCallback(
-        window_,
-        framebufferSizeCallback
-    );
+    onFramebufferResize(framebufferWidth, framebufferHeight);
 }
 
 Window::~Window() {
@@ -65,7 +53,13 @@ Window::~Window() {
 }
 
 Window::Window(Window&& other) noexcept
-    : window_{std::exchange(other.window_, nullptr)} {
+    : window_{std::exchange(other.window_, nullptr)},
+      width_{other.width_},
+      height_{other.height_} {
+    // GLFW still points at the moved-from object; redirect it to this one.
+    if (window_) {
+        glfwSetWindowUserPointer(window_, this);
+    }
 }
 
 Window& Window::operator=(Window&& other) noexcept {
@@ -75,6 +69,12 @@ Window& Window::operator=(Window&& other) noexcept {
         }
 
         window_ = std::exchange(other.window_, nullptr);
+        width_ = other.width_;
+        height_ = other.height_;
+
+        if (window_) {
+            glfwSetWindowUserPointer(window_, this);
+        }
     }
 
     return *this;
@@ -92,8 +92,27 @@ void Window::swapBuffers() const {
     glfwSwapBuffers(window_);
 }
 
-GLFWwindow* Window::nativeHandle() const {
-    return window_;
+int Window::getWidth() const {
+    return width_;
+}
+
+int Window::getHeight() const {
+    return height_;
+}
+
+void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
+    auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+
+    if (self) {
+        self->onFramebufferResize(width, height);
+    }
+}
+
+void Window::onFramebufferResize(int width, int height) {
+    width_ = width;
+    height_ = height;
+
+    glViewport(0, 0, width, height);
 }
 
 } // namespace gui
