@@ -6,6 +6,49 @@
 
 namespace gui {
 
+namespace {
+
+// gui::Key and gui::MouseButton mirror GLFW's codes; keep them in sync.
+static_assert(static_cast<int>(Key::Unknown) == GLFW_KEY_UNKNOWN);
+static_assert(static_cast<int>(Key::Space) == GLFW_KEY_SPACE);
+static_assert(static_cast<int>(Key::A) == GLFW_KEY_A);
+static_assert(static_cast<int>(Key::Z) == GLFW_KEY_Z);
+static_assert(static_cast<int>(Key::Escape) == GLFW_KEY_ESCAPE);
+static_assert(static_cast<int>(Key::F25) == GLFW_KEY_F25);
+static_assert(static_cast<int>(Key::Keypad9) == GLFW_KEY_KP_9);
+static_assert(static_cast<int>(Key::Menu) == GLFW_KEY_LAST);
+static_assert(static_cast<int>(MouseButton::Left) == GLFW_MOUSE_BUTTON_LEFT);
+static_assert(static_cast<int>(MouseButton::Right) == GLFW_MOUSE_BUTTON_RIGHT);
+static_assert(static_cast<int>(MouseButton::Middle) == GLFW_MOUSE_BUTTON_MIDDLE);
+static_assert(static_cast<int>(MouseButton::Button8) == GLFW_MOUSE_BUTTON_LAST);
+
+Window* windowFrom(GLFWwindow* window) {
+    return static_cast<Window*>(glfwGetWindowUserPointer(window));
+}
+
+KeyAction toKeyAction(int action) {
+    switch (action) {
+        case GLFW_RELEASE: return KeyAction::Release;
+        case GLFW_REPEAT: return KeyAction::Repeat;
+        default: return KeyAction::Press;
+    }
+}
+
+ButtonAction toButtonAction(int action) {
+    return action == GLFW_PRESS ? ButtonAction::Press : ButtonAction::Release;
+}
+
+Modifiers toModifiers(int mods) {
+    return Modifiers{
+        .shift = (mods & GLFW_MOD_SHIFT) != 0,
+        .control = (mods & GLFW_MOD_CONTROL) != 0,
+        .alt = (mods & GLFW_MOD_ALT) != 0,
+        .super = (mods & GLFW_MOD_SUPER) != 0
+    };
+}
+
+} // namespace
+
 Window::Window(int width, int height, const std::string& title) {
     if (!glfwInit()) {
         throw std::runtime_error("Failed to initialize GLFW");
@@ -31,6 +74,11 @@ Window::Window(int width, int height, const std::string& title) {
         window_,
         &Window::framebufferSizeCallback
     );
+    glfwSetKeyCallback(window_, &Window::keyCallback);
+    glfwSetCursorPosCallback(window_, &Window::cursorPosCallback);
+    glfwSetMouseButtonCallback(window_, &Window::mouseButtonCallback);
+    glfwSetScrollCallback(window_, &Window::scrollCallback);
+    glfwSetWindowCloseCallback(window_, &Window::windowCloseCallback);
 
     // Query the real framebuffer size; it may not match width/height on HiDPI.
     int framebufferWidth{};
@@ -55,7 +103,8 @@ Window::~Window() {
 Window::Window(Window&& other) noexcept
     : window_{std::exchange(other.window_, nullptr)},
       width_{other.width_},
-      height_{other.height_} {
+      height_{other.height_},
+      eventCallback_{std::move(other.eventCallback_)} {
     // GLFW still points at the moved-from object; redirect it to this one.
     if (window_) {
         glfwSetWindowUserPointer(window_, this);
@@ -71,6 +120,7 @@ Window& Window::operator=(Window&& other) noexcept {
         window_ = std::exchange(other.window_, nullptr);
         width_ = other.width_;
         height_ = other.height_;
+        eventCallback_ = std::move(other.eventCallback_);
 
         if (window_) {
             glfwSetWindowUserPointer(window_, this);
@@ -100,11 +150,71 @@ int Window::getHeight() const {
     return height_;
 }
 
+void Window::setEventCallback(EventCallback callback) {
+    eventCallback_ = std::move(callback);
+}
+
 void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
-    auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+    auto* self = windowFrom(window);
 
     if (self) {
         self->onFramebufferResize(width, height);
+    }
+}
+
+void Window::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    auto* self = windowFrom(window);
+
+    if (self) {
+        self->emit(Event{KeyEvent{
+            .key = static_cast<Key>(key),
+            .scancode = scancode,
+            .action = toKeyAction(action),
+            .mods = toModifiers(mods)
+        }});
+    }
+}
+
+void Window::cursorPosCallback(GLFWwindow* window, double x, double y) {
+    auto* self = windowFrom(window);
+
+    if (self) {
+        self->emit(Event{MouseMoveEvent{.x = x, .y = y}});
+    }
+}
+
+void Window::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
+    auto* self = windowFrom(window);
+
+    if (self) {
+        double x{};
+        double y{};
+        glfwGetCursorPos(window, &x, &y);
+
+        self->emit(Event{MouseButtonEvent{
+            .button = static_cast<MouseButton>(button),
+            .action = toButtonAction(action),
+            .x = x,
+            .y = y,
+            .mods = toModifiers(mods)
+        }});
+    }
+}
+
+void Window::scrollCallback(GLFWwindow* window, double xOffset, double yOffset) {
+    auto* self = windowFrom(window);
+
+    if (self) {
+        self->emit(Event{MouseScrollEvent{.xOffset = xOffset, .yOffset = yOffset}});
+    }
+}
+
+void Window::windowCloseCallback(GLFWwindow* window) {
+    auto* self = windowFrom(window);
+
+    // Only notifies; GLFW has already set the should-close flag.
+    if (self) {
+        self->emit(Event{WindowCloseEvent{}});
     }
 }
 
@@ -113,6 +223,14 @@ void Window::onFramebufferResize(int width, int height) {
     height_ = height;
 
     glViewport(0, 0, width, height);
+
+    emit(Event{WindowResizeEvent{.width = width, .height = height}});
+}
+
+void Window::emit(const Event& event) const {
+    if (eventCallback_) {
+        eventCallback_(event);
+    }
 }
 
 } // namespace gui

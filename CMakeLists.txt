@@ -11,6 +11,8 @@ find_package(OpenGL REQUIRED)
 add_executable(MyGUI
     src/main.cpp
     src/Window.cpp
+    src/Event.cpp
+    src/Input.cpp
 )
 
 target_include_directories(MyGUI PRIVATE

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "gui/Event.hpp"
+
+#include <functional>
 #include <string>
 
 struct GLFWwindow;
@@ -8,6 +11,8 @@ namespace gui {
 
 class Window {
 public:
+    using EventCallback = std::function<void(const Event&)>;
+
     Window(int width, int height, const std::string& title);
     ~Window();
 
@@ -26,17 +31,28 @@ public:
     int getWidth() const;
     int getHeight() const;
 
+    // Receives every input and window event. Events are delivered from
+    // inside pollEvents(), on the calling thread.
+    void setEventCallback(EventCallback callback);
+
 private:
-    // GLFW is a C library and cannot call member functions directly, so this
-    // static function receives the event and forwards it to the owning Window
+    // GLFW is a C library and cannot call member functions directly, so these
+    // static functions receive the events and forward them to the owning Window
     // found through the GLFW window user pointer.
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
+    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+    static void cursorPosCallback(GLFWwindow* window, double x, double y);
+    static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+    static void scrollCallback(GLFWwindow* window, double xOffset, double yOffset);
+    static void windowCloseCallback(GLFWwindow* window);
 
     void onFramebufferResize(int width, int height);
+    void emit(const Event& event) const;
 
     GLFWwindow* window_{nullptr};
     int width_{0};
     int height_{0};
+    EventCallback eventCallback_;
 };
 
 }
