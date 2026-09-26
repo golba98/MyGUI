@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <string_view>
 
 namespace gui {
@@ -109,5 +111,55 @@ struct Modifiers {
 // Human-readable names, mainly for logging and debugging.
 std::string_view toString(Key key);
 std::string_view toString(MouseButton button);
+
+class Window;
+
+// Polled keyboard and mouse state for one window, updated by Window from GLFW
+// callbacks. "Pressed" and "Released" are true only for the frame in which the
+// transition happened, where a frame is one Window::pollEvents() call.
+class Input {
+public:
+    // Cursor position in window content-area coordinates (not framebuffer pixels).
+    double mouseX() const;
+    double mouseY() const;
+
+    // Scroll offset accumulated during the current frame.
+    double scrollX() const;
+    double scrollY() const;
+
+    bool isKeyDown(Key key) const;
+    bool isKeyPressed(Key key) const;
+    bool isKeyReleased(Key key) const;
+
+    bool isMouseDown(MouseButton button) const;
+    bool isMousePressed(MouseButton button) const;
+    bool isMouseReleased(MouseButton button) const;
+
+private:
+    // Only Window feeds state in; the public API is read-only.
+    friend class Window;
+
+    struct ButtonState {
+        bool down{false};
+        bool pressed{false};
+        bool released{false};
+    };
+
+    static constexpr std::size_t keyCount = static_cast<std::size_t>(Key::Menu) + 1;
+    static constexpr std::size_t mouseButtonCount = static_cast<std::size_t>(MouseButton::Button8) + 1;
+
+    void beginFrame();
+    void onKey(Key key, KeyAction action);
+    void onMouseButton(MouseButton button, ButtonAction action);
+    void onMouseMove(double x, double y);
+    void onScroll(double xOffset, double yOffset);
+
+    std::array<ButtonState, keyCount> keys_{};
+    std::array<ButtonState, mouseButtonCount> mouseButtons_{};
+    double mouseX_{0.0};
+    double mouseY_{0.0};
+    double scrollX_{0.0};
+    double scrollY_{0.0};
+};
 
 } // namespace gui
