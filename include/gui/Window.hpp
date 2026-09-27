@@ -23,7 +23,7 @@ public:
     Window& operator=(Window&& other) noexcept;
 
     bool shouldClose() const;
-    void pollEvents() const;
+    void pollEvents();
     void swapBuffers() const;
 
     // Framebuffer size in pixels. On HiDPI displays this can differ
@@ -34,6 +34,9 @@ public:
     // Receives every input and window event. Events are delivered from
     // inside pollEvents(), on the calling thread.
     void setEventCallback(EventCallback callback);
+
+    // Polled keyboard and mouse state. Refreshed by each pollEvents() call.
+    const Input& input() const;
 
 private:
     // GLFW is a C library and cannot call member functions directly, so these
@@ -53,6 +56,7 @@ private:
     int width_{0};
     int height_{0};
     EventCallback eventCallback_;
+    Input input_;
 };
 
 }

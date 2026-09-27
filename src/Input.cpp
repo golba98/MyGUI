@@ -15,6 +15,40 @@ int offset(Key key, Key first) {
     return static_cast<int>(key) - static_cast<int>(first);
 }
 
+// Looks up the state for a Key or MouseButton, or nullptr if the value is
+// outside the tracked range (e.g. Key::Unknown).
+template <typename States, typename Id>
+auto* stateFor(States& states, Id id) {
+    const auto index = static_cast<int>(id);
+    const bool valid = index >= 0 && static_cast<std::size_t>(index) < states.size();
+
+    return valid ? &states[static_cast<std::size_t>(index)] : nullptr;
+}
+
+// Records a down/up transition, marking the edge only when the state changes.
+void setDown(auto& state, bool down) {
+    if (down && !state.down) {
+        state.pressed = true;
+    }
+    else if (!down && state.down) {
+        state.released = true;
+    }
+
+    state.down = down;
+}
+
+bool isDown(const auto* state) {
+    return state && state->down;
+}
+
+bool isPressed(const auto* state) {
+    return state && state->pressed;
+}
+
+bool isReleased(const auto* state) {
+    return state && state->released;
+}
+
 } // namespace
 
 std::string_view toString(Key key) {
@@ -113,6 +147,89 @@ std::string_view toString(MouseButton button) {
     }
 
     return "Unknown";
+}
+
+double Input::mouseX() const {
+    return mouseX_;
+}
+
+double Input::mouseY() const {
+    return mouseY_;
+}
+
+double Input::scrollX() const {
+    return scrollX_;
+}
+
+double Input::scrollY() const {
+    return scrollY_;
+}
+
+bool Input::isKeyDown(Key key) const {
+    return isDown(stateFor(keys_, key));
+}
+
+bool Input::isKeyPressed(Key key) const {
+    return isPressed(stateFor(keys_, key));
+}
+
+bool Input::isKeyReleased(Key key) const {
+    return isReleased(stateFor(keys_, key));
+}
+
+bool Input::isMouseDown(MouseButton button) const {
+    return isDown(stateFor(mouseButtons_, button));
+}
+
+bool Input::isMousePressed(MouseButton button) const {
+    return isPressed(stateFor(mouseButtons_, button));
+}
+
+bool Input::isMouseReleased(MouseButton button) const {
+    return isReleased(stateFor(mouseButtons_, button));
+}
+
+void Input::beginFrame() {
+    for (auto& key : keys_) {
+        key.pressed = false;
+        key.released = false;
+    }
+
+    for (auto& button : mouseButtons_) {
+        button.pressed = false;
+        button.released = false;
+    }
+
+    scrollX_ = 0.0;
+    scrollY_ = 0.0;
+}
+
+void Input::onKey(Key key, KeyAction action) {
+    auto* state = stateFor(keys_, key);
+
+    // Repeat is not a new press, and the key is already down.
+    if (state && action != KeyAction::Repeat) {
+        setDown(*state, action == KeyAction::Press);
+    }
+}
+
+void Input::onMouseButton(MouseButton button, ButtonAction action) {
+    auto* state = stateFor(mouseButtons_, button);
+
+    if (state) {
+        setDown(*state, action == ButtonAction::Press);
+    }
+}
+
+void Input::onMouseMove(double x, double y) {
+    mouseX_ = x;
+    mouseY_ = y;
+}
+
+void Input::onScroll(double xOffset, double yOffset) {
+    // Several scroll events can arrive in one poll, so accumulate them.
+    scrollX_ += xOffset;
+    scrollY_ += yOffset;
 }
 
 } // namespace gui
