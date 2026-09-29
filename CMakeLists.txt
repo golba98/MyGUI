@@ -13,6 +13,8 @@ add_executable(MyGUI
     src/Window.cpp
     src/Event.cpp
     src/Input.cpp
+    src/Renderer.cpp
+    src/gl/Functions.cpp
 )
 
 target_include_directories(MyGUI PRIVATE
