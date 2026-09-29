@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gui/Event.hpp"
+#include "gui/Viewport.hpp"
 
 #include <functional>
 #include <string>
@@ -30,6 +31,10 @@ public:
     // from the logical window size requested in the constructor.
     int getWidth() const;
     int getHeight() const;
+
+    // Logical (window) size together with framebuffer size. Widgets and
+    // mouse coordinates use the logical space.
+    Viewport viewport() const;
 
     // Receives every input and window event. Events are delivered from
     // inside pollEvents(), on the calling thread.

@@ -1,3 +1,4 @@
+#include "gui/Panel.hpp"
 #include "gui/Renderer.hpp"
 #include "gui/Window.hpp"
 
@@ -82,26 +83,40 @@ int main() {
         // Declared after window so it is destroyed while the context is current.
         gui::Renderer renderer{glfwGetProcAddress};
 
+        // Positions are logical units; the renderer scales them for HiDPI.
+        gui::Panel frame;
+        frame.setBackgroundColor({0.14f, 0.15f, 0.17f, 1.0f});
+
+        gui::Panel sidebar;
+        sidebar.setBackgroundColor({0.24f, 0.26f, 0.30f, 1.0f});
+
+        gui::Panel content;
+        content.setBackgroundColor({0.20f, 0.22f, 0.25f, 1.0f});
+
+        // Overlaps the sidebar and content. Press V to toggle it.
+        gui::Panel overlay{{200.0f, 120.0f, 320.0f, 180.0f}};
+        overlay.setBackgroundColor({0.90f, 0.25f, 0.35f, 0.5f});
+
         while (!window.shouldClose()) {
-            const float width = static_cast<float>(window.getWidth());
-            const float height = static_cast<float>(window.getHeight());
+            const gui::Viewport viewport = window.viewport();
+            const float width = static_cast<float>(viewport.logicalWidth);
+            const float height = static_cast<float>(viewport.logicalHeight);
 
-            renderer.beginFrame(window.getWidth(), window.getHeight());
+            if (window.input().isKeyPressed(gui::Key::V)) {
+                overlay.setVisible(!overlay.visible());
+            }
 
-            // Background covering the whole framebuffer.
-            renderer.drawRect({0.0f, 0.0f, width, height}, {0.08f, 0.08f, 0.08f, 1.0f});
+            frame.setBounds({20.0f, 20.0f, width - 40.0f, height - 40.0f});
+            sidebar.setBounds({40.0f, 40.0f, 220.0f, height - 80.0f});
+            content.setBounds({280.0f, 40.0f, width - 320.0f, height - 80.0f});
 
-            // Panel inset from every edge; it tracks the window size.
-            renderer.drawRect({40.0f, 40.0f, width - 80.0f, height - 80.0f}, {0.18f, 0.19f, 0.22f, 1.0f});
+            renderer.beginFrame(viewport);
+            renderer.clear({0.08f, 0.08f, 0.08f, 1.0f});
 
-            // Accent anchored to the top-left corner.
-            renderer.drawRect({80.0f, 80.0f, 240.0f, 120.0f}, {0.95f, 0.65f, 0.15f, 1.0f});
-
-            // Opaque rectangle anchored to the bottom-right corner.
-            renderer.drawRect({width - 380.0f, height - 280.0f, 280.0f, 180.0f}, {0.20f, 0.45f, 0.90f, 1.0f});
-
-            // Semi-transparent rectangle overlapping the one above and the panel.
-            renderer.drawRect({width - 480.0f, height - 360.0f, 280.0f, 180.0f}, {0.90f, 0.25f, 0.35f, 0.5f});
+            frame.draw(renderer);
+            sidebar.draw(renderer);
+            content.draw(renderer);
+            overlay.draw(renderer);
 
             renderer.endFrame();
 

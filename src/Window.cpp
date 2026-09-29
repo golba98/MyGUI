@@ -168,6 +168,19 @@ int Window::getHeight() const {
     return height_;
 }
 
+Viewport Window::viewport() const {
+    int logicalWidth{};
+    int logicalHeight{};
+    glfwGetWindowSize(window_, &logicalWidth, &logicalHeight);
+
+    return Viewport{
+        .logicalWidth = logicalWidth,
+        .logicalHeight = logicalHeight,
+        .framebufferWidth = width_,
+        .framebufferHeight = height_
+    };
+}
+
 void Window::setEventCallback(EventCallback callback) {
     eventCallback_ = std::move(callback);
 }
