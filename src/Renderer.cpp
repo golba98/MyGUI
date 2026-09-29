@@ -16,18 +16,20 @@ static_assert(std::is_same_v<GLuint, unsigned int>, "GLHandle stores names as un
 constexpr std::size_t initialRectCapacity = 256;
 constexpr std::size_t verticesPerRect = 6;
 
-// Positions arrive in GUI pixels (top-left origin, y down) and are mapped to
-// normalized device coordinates (bottom-left origin, y up) here.
+// Positions arrive in logical units (top-left origin, y down) and are mapped
+// to normalized device coordinates (bottom-left origin, y up) here. The
+// OpenGL viewport then stretches that range across the framebuffer's pixels,
+// which is what applies the display scale.
 constexpr const char* vertexShaderSource = R"(#version 330 core
 layout(location = 0) in vec2 aPosition;
 layout(location = 1) in vec4 aColor;
 
-uniform vec2 uViewportSize;
+uniform vec2 uLogicalSize;
 
 out vec4 vColor;
 
 void main() {
-    vec2 ndc = aPosition / uViewportSize * 2.0 - 1.0;
+    vec2 ndc = aPosition / uLogicalSize * 2.0 - 1.0;
     gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
     vColor = aColor;
 }
@@ -116,7 +118,7 @@ Renderer::Renderer(GLProcLoader loader) {
     const auto vertexShader = compileShader(GL_VERTEX_SHADER, vertexShaderSource);
     const auto fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
     program_ = linkProgram(vertexShader, fragmentShader);
-    viewportSizeLocation_ = gl::GetUniformLocation(program_.get(), "uViewportSize");
+    logicalSizeLocation_ = gl::GetUniformLocation(program_.get(), "uLogicalSize");
 
     GLuint vertexArray{0};
     gl::GenVertexArrays(1, &vertexArray);
@@ -154,14 +156,20 @@ Renderer::Renderer(Renderer&& other) noexcept = default;
 
 Renderer& Renderer::operator=(Renderer&& other) noexcept = default;
 
-void Renderer::beginFrame(int width, int height) {
-    width_ = width;
-    height_ = height;
+void Renderer::beginFrame(const Viewport& viewport) {
+    viewport_ = viewport;
 
     // clear() keeps the capacity, so steady-state frames do not allocate.
     vertices_.clear();
 
-    gl::Viewport(0, 0, width, height);
+    gl::Viewport(0, 0, viewport.framebufferWidth, viewport.framebufferHeight);
+}
+
+void Renderer::clear(const Color& color) {
+    vertices_.clear();
+
+    gl::ClearColor(color.r, color.g, color.b, color.a);
+    gl::Clear(GL_COLOR_BUFFER_BIT);
 }
 
 void Renderer::drawRect(const Rect& rect, const Color& color) {
@@ -185,7 +193,10 @@ void Renderer::drawRect(const Rect& rect, const Color& color) {
 
 void Renderer::endFrame() {
     // Nothing queued, or the window is minimized.
-    if (vertices_.empty() || width_ <= 0 || height_ <= 0) {
+    const bool empty = viewport_.logicalWidth <= 0 || viewport_.logicalHeight <= 0
+        || viewport_.framebufferWidth <= 0 || viewport_.framebufferHeight <= 0;
+
+    if (vertices_.empty() || empty) {
         return;
     }
 
@@ -195,7 +206,11 @@ void Renderer::endFrame() {
     gl::Disable(GL_DEPTH_TEST);
 
     gl::UseProgram(program_.get());
-    gl::Uniform2f(viewportSizeLocation_, static_cast<float>(width_), static_cast<float>(height_));
+    gl::Uniform2f(
+        logicalSizeLocation_,
+        static_cast<float>(viewport_.logicalWidth),
+        static_cast<float>(viewport_.logicalHeight)
+    );
 
     gl::BindVertexArray(vertexArray_.get());
     gl::BindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.get());
