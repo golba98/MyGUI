@@ -1,7 +1,6 @@
-'EOF'
 build/
+cmake-build-*/
 *.o
 *.out
 .vscode/
 .idea/
-EOF

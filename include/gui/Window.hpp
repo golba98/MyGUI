@@ -27,6 +27,10 @@ public:
     void pollEvents();
     void swapBuffers() const;
 
+    // Synchronizes swapBuffers() with the display refresh. On by default, so
+    // the render loop does not spin at full speed. Affects the current context.
+    void setVSync(bool enabled);
+
     // Framebuffer size in pixels. On HiDPI displays this can differ
     // from the logical window size requested in the constructor.
     int getWidth() const;

@@ -1,6 +1,10 @@
 #include "gui/Window.hpp"
 
+// Window only manages the context; all OpenGL calls live in the renderer.
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+
+#include <cstddef>
 #include <stdexcept>
 #include <utility>
 
@@ -21,6 +25,24 @@ static_assert(static_cast<int>(MouseButton::Left) == GLFW_MOUSE_BUTTON_LEFT);
 static_assert(static_cast<int>(MouseButton::Right) == GLFW_MOUSE_BUTTON_RIGHT);
 static_assert(static_cast<int>(MouseButton::Middle) == GLFW_MOUSE_BUTTON_MIDDLE);
 static_assert(static_cast<int>(MouseButton::Button8) == GLFW_MOUSE_BUTTON_LAST);
+
+// GLFW is process-wide, so it is initialized with the first Window and
+// terminated with the last one. Windows are created on the main thread only.
+std::size_t glfwUsers = 0;
+
+void acquireGlfw() {
+    if (glfwUsers == 0 && !glfwInit()) {
+        throw std::runtime_error("Failed to initialize GLFW");
+    }
+
+    ++glfwUsers;
+}
+
+void releaseGlfw() {
+    if (glfwUsers > 0 && --glfwUsers == 0) {
+        glfwTerminate();
+    }
+}
 
 Window* windowFrom(GLFWwindow* window) {
     return static_cast<Window*>(glfwGetWindowUserPointer(window));
@@ -50,9 +72,7 @@ Modifiers toModifiers(int mods) {
 } // namespace
 
 Window::Window(int width, int height, const std::string& title) {
-    if (!glfwInit()) {
-        throw std::runtime_error("Failed to initialize GLFW");
-    }
+    acquireGlfw();
 
     // The renderer targets the OpenGL 3.3 core profile.
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -71,11 +91,12 @@ Window::Window(int width, int height, const std::string& title) {
     );
 
     if (!window_) {
-        glfwTerminate();
+        releaseGlfw();
         throw std::runtime_error("Failed to create GLFW window");
     }
 
     glfwMakeContextCurrent(window_);
+    setVSync(true);
 
     glfwSetWindowUserPointer(window_, this);
     glfwSetFramebufferSizeCallback(
@@ -110,7 +131,7 @@ Window::Window(int width, int height, const std::string& title) {
 Window::~Window() {
     if (window_) {
         glfwDestroyWindow(window_);
-        glfwTerminate();
+        releaseGlfw();
     }
 }
 
@@ -130,6 +151,7 @@ Window& Window::operator=(Window&& other) noexcept {
     if (this != &other) {
         if (window_) {
             glfwDestroyWindow(window_);
+            releaseGlfw();
         }
 
         window_ = std::exchange(other.window_, nullptr);
@@ -158,6 +180,11 @@ void Window::pollEvents() {
 
 void Window::swapBuffers() const {
     glfwSwapBuffers(window_);
+}
+
+void Window::setVSync(bool enabled) {
+    // Applies to the current context, which is this window's.
+    glfwSwapInterval(enabled ? 1 : 0);
 }
 
 int Window::getWidth() const {
@@ -265,8 +292,6 @@ void Window::windowCloseCallback(GLFWwindow* window) {
 void Window::onFramebufferResize(int width, int height) {
     width_ = width;
     height_ = height;
-
-    glViewport(0, 0, width, height);
 
     emit(Event{WindowResizeEvent{.width = width, .height = height}});
 }
