@@ -1,3 +1,4 @@
+#include "gui/Renderer.hpp"
 #include "gui/Window.hpp"
 
 #include <GLFW/glfw3.h>
@@ -78,15 +79,31 @@ int main() {
 
         window.setEventCallback(printEvent);
 
-        while (!window.shouldClose()) {
-            glClearColor(
-                0.08f,
-                0.08f,
-                0.08f,
-                1.0f
-            );
+        // Declared after window so it is destroyed while the context is current.
+        gui::Renderer renderer{glfwGetProcAddress};
 
-            glClear(GL_COLOR_BUFFER_BIT);
+        while (!window.shouldClose()) {
+            const float width = static_cast<float>(window.getWidth());
+            const float height = static_cast<float>(window.getHeight());
+
+            renderer.beginFrame(window.getWidth(), window.getHeight());
+
+            // Background covering the whole framebuffer.
+            renderer.drawRect({0.0f, 0.0f, width, height}, {0.08f, 0.08f, 0.08f, 1.0f});
+
+            // Panel inset from every edge; it tracks the window size.
+            renderer.drawRect({40.0f, 40.0f, width - 80.0f, height - 80.0f}, {0.18f, 0.19f, 0.22f, 1.0f});
+
+            // Accent anchored to the top-left corner.
+            renderer.drawRect({80.0f, 80.0f, 240.0f, 120.0f}, {0.95f, 0.65f, 0.15f, 1.0f});
+
+            // Opaque rectangle anchored to the bottom-right corner.
+            renderer.drawRect({width - 380.0f, height - 280.0f, 280.0f, 180.0f}, {0.20f, 0.45f, 0.90f, 1.0f});
+
+            // Semi-transparent rectangle overlapping the one above and the panel.
+            renderer.drawRect({width - 480.0f, height - 360.0f, 280.0f, 180.0f}, {0.90f, 0.25f, 0.35f, 0.5f});
+
+            renderer.endFrame();
 
             window.swapBuffers();
             window.pollEvents();

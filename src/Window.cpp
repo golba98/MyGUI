@@ -54,6 +54,14 @@ Window::Window(int width, int height, const std::string& title) {
         throw std::runtime_error("Failed to initialize GLFW");
     }
 
+    // The renderer targets the OpenGL 3.3 core profile.
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+#endif
+
     window_ = glfwCreateWindow(
         width,
         height,
