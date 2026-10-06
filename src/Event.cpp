@@ -40,6 +40,9 @@ Event::Event(const WindowResizeEvent& event)
 Event::Event(const WindowCloseEvent& event)
     : type_{EventType::WindowClosed}, data_{event} {}
 
+Event::Event(const TextInputEvent& event)
+    : type_{EventType::TextInput}, data_{event} {}
+
 EventType Event::type() const {
     return type_;
 }

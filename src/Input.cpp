@@ -1,4 +1,5 @@
 #include "gui/Input.hpp"
+#include "gui/Event.hpp"
 
 #include <array>
 
@@ -149,6 +150,10 @@ std::string_view toString(MouseButton button) {
     return "Unknown";
 }
 
+MousePosition Input::mousePosition() const {
+    return {.x = mouseX_, .y = mouseY_};
+}
+
 double Input::mouseX() const {
     return mouseX_;
 }
@@ -181,6 +186,10 @@ bool Input::isMouseDown(MouseButton button) const {
     return isDown(stateFor(mouseButtons_, button));
 }
 
+bool Input::isMouseButtonDown(MouseButton button) const {
+    return isMouseDown(button);
+}
+
 bool Input::isMousePressed(MouseButton button) const {
     return isPressed(stateFor(mouseButtons_, button));
 }
@@ -205,10 +214,13 @@ void Input::beginFrame() {
 }
 
 void Input::onKey(Key key, KeyAction action) {
+    if (toString(key) == "Unknown") {
+        return;
+    }
     auto* state = stateFor(keys_, key);
 
     // Repeat is not a new press, and the key is already down.
-    if (state && action != KeyAction::Repeat) {
+    if (state && (action == KeyAction::Press || action == KeyAction::Release)) {
         setDown(*state, action == KeyAction::Press);
     }
 }
@@ -216,7 +228,7 @@ void Input::onKey(Key key, KeyAction action) {
 void Input::onMouseButton(MouseButton button, ButtonAction action) {
     auto* state = stateFor(mouseButtons_, button);
 
-    if (state) {
+    if (state && (action == ButtonAction::Press || action == ButtonAction::Release)) {
         setDown(*state, action == ButtonAction::Press);
     }
 }
@@ -230,6 +242,23 @@ void Input::onScroll(double xOffset, double yOffset) {
     // Several scroll events can arrive in one poll, so accumulate them.
     scrollX_ += xOffset;
     scrollY_ += yOffset;
+}
+
+void Input::processEvent(const Event& event) {
+    if (const auto* key = event.getIf<KeyEvent>()) {
+        onKey(key->key, key->action);
+    }
+    else if (const auto* move = event.getIf<MouseMoveEvent>()) {
+        onMouseMove(move->x, move->y);
+    }
+    else if (const auto* button = event.getIf<MouseButtonEvent>()) {
+        onMouseMove(button->x, button->y);
+        onMouseButton(button->button, button->action);
+    }
+    else if (const auto* scroll = event.getIf<MouseScrollEvent>()) {
+        onMouseMove(scroll->x, scroll->y);
+        onScroll(scroll->xOffset, scroll->yOffset);
+    }
 }
 
 } // namespace gui

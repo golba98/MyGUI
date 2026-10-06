@@ -112,14 +112,26 @@ struct Modifiers {
 std::string_view toString(Key key);
 std::string_view toString(MouseButton button);
 
-class Window;
+class Event;
 
-// Polled keyboard and mouse state for one window, updated by Window from GLFW
-// callbacks. "Pressed" and "Released" are true only for the frame in which the
-// transition happened, where a frame is one Window::pollEvents() call.
+struct MousePosition {
+    double x{0.0};
+    double y{0.0};
+};
+
+// Persistent state fed by framework events. Pressed/released edges and scroll
+// offsets reset at beginFrame(), called by Window::pollEvents(). Both edges can
+// be true when a button changes state multiple times in one frame; down always
+// reflects its latest state.
 class Input {
 public:
+    // Platform-independent feeding API. Window exposes its Input as const.
+    // Start a frame before feeding its events; held state and position persist.
+    void beginFrame();
+    void processEvent(const Event& event);
+
     // Cursor position in window content-area coordinates (not framebuffer pixels).
+    MousePosition mousePosition() const;
     double mouseX() const;
     double mouseY() const;
 
@@ -132,13 +144,11 @@ public:
     bool isKeyReleased(Key key) const;
 
     bool isMouseDown(MouseButton button) const;
+    bool isMouseButtonDown(MouseButton button) const;
     bool isMousePressed(MouseButton button) const;
     bool isMouseReleased(MouseButton button) const;
 
 private:
-    // Only Window feeds state in; the public API is read-only.
-    friend class Window;
-
     struct ButtonState {
         bool down{false};
         bool pressed{false};
@@ -148,7 +158,6 @@ private:
     static constexpr std::size_t keyCount = static_cast<std::size_t>(Key::Menu) + 1;
     static constexpr std::size_t mouseButtonCount = static_cast<std::size_t>(MouseButton::Button8) + 1;
 
-    void beginFrame();
     void onKey(Key key, KeyAction action);
     void onMouseButton(MouseButton button, ButtonAction action);
     void onMouseMove(double x, double y);

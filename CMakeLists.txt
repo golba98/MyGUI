@@ -42,3 +42,24 @@ add_executable(MyGUI_tests
 target_link_libraries(MyGUI_tests PRIVATE MyGUI_core)
 
 add_test(NAME RendererTests COMMAND MyGUI_tests)
+
+# Pure event/state tests have no GLFW, OpenGL, or display dependency.
+add_executable(MyGUI_input_tests
+    tests/InputEventTests.cpp
+    src/Event.cpp
+    src/Input.cpp
+)
+target_include_directories(MyGUI_input_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+add_test(NAME InputEventTests COMMAND MyGUI_input_tests)
+
+add_executable(MyGUI_window_tests tests/WindowEventTests.cpp)
+target_link_libraries(MyGUI_window_tests PRIVATE MyGUI_core)
+add_test(NAME WindowEventTests COMMAND MyGUI_window_tests)
+
+foreach(target MyGUI_core MyGUI MyGUI_tests MyGUI_input_tests MyGUI_window_tests)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+endforeach()

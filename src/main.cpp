@@ -2,8 +2,6 @@
 #include "gui/Renderer.hpp"
 #include "gui/Window.hpp"
 
-#include <GLFW/glfw3.h>
-
 #include <exception>
 #include <iostream>
 
@@ -63,12 +61,20 @@ void printEvent(const gui::Event& event) {
         }
         case gui::EventType::WindowResized: {
             const auto* resize = event.getIf<gui::WindowResizeEvent>();
-            std::cout << "Window resized: " << resize->width << ", " << resize->height << '\n';
+            std::cout << "Window resized: logical " << resize->logicalWidth << ", "
+                      << resize->logicalHeight << "; framebuffer " << resize->width
+                      << ", " << resize->height << '\n';
             break;
         }
         case gui::EventType::WindowClosed:
             std::cout << "Window closed\n";
             break;
+        case gui::EventType::TextInput: {
+            const auto* text = event.getIf<gui::TextInputEvent>();
+            std::cout << "Text input: U+" << std::hex
+                      << static_cast<unsigned int>(text->codepoint) << std::dec << '\n';
+            break;
+        }
     }
 }
 
@@ -78,10 +84,8 @@ int main() {
     try {
         gui::Window window{1280, 720, "MyGUI"};
 
-        window.setEventCallback(printEvent);
-
         // Declared after window so it is destroyed while the context is current.
-        gui::Renderer renderer{glfwGetProcAddress};
+        gui::Renderer renderer{window.glProcLoader()};
 
         // Positions are logical units; the renderer scales them for HiDPI.
         gui::Panel frame;
@@ -98,6 +102,13 @@ int main() {
         overlay.setBackgroundColor({0.90f, 0.25f, 0.35f, 0.5f});
 
         while (!window.shouldClose()) {
+            window.pollEvents();
+            while (auto event = window.nextEvent()) {
+                printEvent(*event);
+            }
+            if (window.shouldClose()) {
+                break;
+            }
             const gui::Viewport viewport = window.viewport();
             const float width = static_cast<float>(viewport.logicalWidth);
             const float height = static_cast<float>(viewport.logicalHeight);
@@ -110,6 +121,15 @@ int main() {
             sidebar.setBounds({40.0f, 40.0f, 220.0f, height - 80.0f});
             content.setBounds({280.0f, 40.0f, width - 320.0f, height - 80.0f});
 
+            const auto mouse = window.input().mousePosition();
+            const auto& bounds = overlay.bounds();
+            const bool hovered = overlay.visible() && mouse.x >= bounds.x
+                && mouse.y >= bounds.y && mouse.x < bounds.x + bounds.width
+                && mouse.y < bounds.y + bounds.height;
+            overlay.setBackgroundColor(hovered
+                ? gui::Color{1.0f, 0.55f, 0.25f, 0.5f}
+                : gui::Color{0.90f, 0.25f, 0.35f, 0.5f});
+
             renderer.beginFrame(viewport);
             renderer.clear({0.08f, 0.08f, 0.08f, 1.0f});
 
@@ -121,7 +141,6 @@ int main() {
             renderer.endFrame();
 
             window.swapBuffers();
-            window.pollEvents();
         }
 
         return 0;
