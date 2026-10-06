@@ -26,16 +26,26 @@ Window* windowFrom(GLFWwindow* window) {
     return static_cast<Window*>(glfwGetWindowUserPointer(window));
 }
 
-KeyAction toKeyAction(int action) {
+std::optional<KeyAction> toKeyAction(int action) {
     switch (action) {
         case GLFW_RELEASE: return KeyAction::Release;
         case GLFW_REPEAT: return KeyAction::Repeat;
-        default: return KeyAction::Press;
+        case GLFW_PRESS: return KeyAction::Press;
+        default: return std::nullopt;
     }
 }
 
-ButtonAction toButtonAction(int action) {
-    return action == GLFW_PRESS ? ButtonAction::Press : ButtonAction::Release;
+std::optional<ButtonAction> toButtonAction(int action) {
+    switch (action) {
+        case GLFW_PRESS: return ButtonAction::Press;
+        case GLFW_RELEASE: return ButtonAction::Release;
+        default: return std::nullopt;
+    }
+}
+
+Key toKey(int key) {
+    const auto translated = static_cast<Key>(key);
+    return toString(translated) == "Unknown" ? Key::Unknown : translated;
 }
 
 Modifiers toModifiers(int mods) {
@@ -83,6 +93,8 @@ Window::Window(int width, int height, const std::string& title) {
         &Window::framebufferSizeCallback
     );
     glfwSetKeyCallback(window_, &Window::keyCallback);
+    glfwSetCharCallback(window_, &Window::charCallback);
+    glfwSetWindowSizeCallback(window_, &Window::windowSizeCallback);
     glfwSetCursorPosCallback(window_, &Window::cursorPosCallback);
     glfwSetMouseButtonCallback(window_, &Window::mouseButtonCallback);
     glfwSetScrollCallback(window_, &Window::scrollCallback);
@@ -92,7 +104,7 @@ Window::Window(int width, int height, const std::string& title) {
     double cursorX{};
     double cursorY{};
     glfwGetCursorPos(window_, &cursorX, &cursorY);
-    input_.onMouseMove(cursorX, cursorY);
+    input_.processEvent(Event{MouseMoveEvent{.x = cursorX, .y = cursorY}});
 
     // Query the real framebuffer size; it may not match width/height on HiDPI.
     int framebufferWidth{};
@@ -104,7 +116,9 @@ Window::Window(int width, int height, const std::string& title) {
         &framebufferHeight
     );
 
-    onFramebufferResize(framebufferWidth, framebufferHeight);
+    width_ = framebufferWidth;
+    height_ = framebufferHeight;
+    glViewport(0, 0, width_, height_);
 }
 
 Window::~Window() {
@@ -119,7 +133,9 @@ Window::Window(Window&& other) noexcept
       width_{other.width_},
       height_{other.height_},
       eventCallback_{std::move(other.eventCallback_)},
-      input_{other.input_} {
+      input_{other.input_},
+      events_{std::move(other.events_)},
+      pendingException_{std::move(other.pendingException_)} {
     // GLFW still points at the moved-from object; redirect it to this one.
     if (window_) {
         glfwSetWindowUserPointer(window_, this);
@@ -137,6 +153,8 @@ Window& Window::operator=(Window&& other) noexcept {
         height_ = other.height_;
         eventCallback_ = std::move(other.eventCallback_);
         input_ = other.input_;
+        events_ = std::move(other.events_);
+        pendingException_ = std::move(other.pendingException_);
 
         if (window_) {
             glfwSetWindowUserPointer(window_, this);
@@ -154,10 +172,26 @@ void Window::pollEvents() {
     // Clear last frame's pressed/released edges before new events arrive.
     input_.beginFrame();
     glfwPollEvents();
+    if (pendingException_) {
+        std::rethrow_exception(std::exchange(pendingException_, nullptr));
+    }
 }
 
 void Window::swapBuffers() const {
     glfwSwapBuffers(window_);
+}
+
+GLProcLoader Window::glProcLoader() const {
+    return glfwGetProcAddress;
+}
+
+std::optional<Event> Window::nextEvent() {
+    if (events_.empty()) {
+        return std::nullopt;
+    }
+    Event event = std::move(events_.front());
+    events_.pop_front();
+    return event;
 }
 
 int Window::getWidth() const {
@@ -199,17 +233,16 @@ void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) 
 
 void Window::keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
     auto* self = windowFrom(window);
+    const auto translatedAction = toKeyAction(action);
 
-    if (self) {
+    if (self && translatedAction) {
         const KeyEvent event{
-            .key = static_cast<Key>(key),
+            .key = toKey(key),
             .scancode = scancode,
-            .action = toKeyAction(action),
+            .action = *translatedAction,
             .mods = toModifiers(mods)
         };
 
-        // Update polled state first so event handlers see matching state.
-        self->input_.onKey(event.key, event.action);
         self->emit(Event{event});
     }
 }
@@ -218,28 +251,28 @@ void Window::cursorPosCallback(GLFWwindow* window, double x, double y) {
     auto* self = windowFrom(window);
 
     if (self) {
-        self->input_.onMouseMove(x, y);
         self->emit(Event{MouseMoveEvent{.x = x, .y = y}});
     }
 }
 
 void Window::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
     auto* self = windowFrom(window);
+    const auto translatedAction = toButtonAction(action);
 
-    if (self) {
+    if (self && translatedAction && button >= GLFW_MOUSE_BUTTON_1
+        && button <= GLFW_MOUSE_BUTTON_LAST) {
         double x{};
         double y{};
         glfwGetCursorPos(window, &x, &y);
 
         const MouseButtonEvent event{
             .button = static_cast<MouseButton>(button),
-            .action = toButtonAction(action),
+            .action = *translatedAction,
             .x = x,
             .y = y,
             .mods = toModifiers(mods)
         };
 
-        self->input_.onMouseButton(event.button, event.action);
         self->emit(Event{event});
     }
 }
@@ -248,8 +281,12 @@ void Window::scrollCallback(GLFWwindow* window, double xOffset, double yOffset) 
     auto* self = windowFrom(window);
 
     if (self) {
-        self->input_.onScroll(xOffset, yOffset);
-        self->emit(Event{MouseScrollEvent{.xOffset = xOffset, .yOffset = yOffset}});
+        double x{};
+        double y{};
+        glfwGetCursorPos(window, &x, &y);
+        self->emit(Event{MouseScrollEvent{
+            .xOffset = xOffset, .yOffset = yOffset, .x = x, .y = y
+        }});
     }
 }
 
@@ -268,12 +305,43 @@ void Window::onFramebufferResize(int width, int height) {
 
     glViewport(0, 0, width, height);
 
-    emit(Event{WindowResizeEvent{.width = width, .height = height}});
+    const auto size = viewport();
+    emitResize(size.logicalWidth, size.logicalHeight);
 }
 
-void Window::emit(const Event& event) const {
-    if (eventCallback_) {
-        eventCallback_(event);
+void Window::windowSizeCallback(GLFWwindow* window, int width, int height) {
+    if (auto* self = windowFrom(window)) {
+        self->emitResize(width, height);
+    }
+}
+
+void Window::charCallback(GLFWwindow* window, unsigned int codepoint) {
+    // GLFW supplies Unicode scalar values; reject invalid synthetic input too.
+    if (auto* self = windowFrom(window); self && codepoint <= 0x10FFFF
+        && !(codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+        self->emit(Event{TextInputEvent{.codepoint = static_cast<char32_t>(codepoint)}});
+    }
+}
+
+void Window::emitResize(int logicalWidth, int logicalHeight) {
+    emit(Event{WindowResizeEvent{
+        .width = width_, .height = height_,
+        .logicalWidth = logicalWidth, .logicalHeight = logicalHeight
+    }});
+}
+
+void Window::emit(const Event& event) noexcept {
+    try {
+        input_.processEvent(event);
+        events_.push_back(event);
+        if (eventCallback_) {
+            eventCallback_(event);
+        }
+    }
+    catch (...) {
+        if (!pendingException_) {
+            pendingException_ = std::current_exception();
+        }
     }
 }
 

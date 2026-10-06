@@ -15,7 +15,8 @@ enum class EventType {
     MouseButtonReleased,
     MouseScrolled,
     WindowResized,
-    WindowClosed
+    WindowClosed,
+    TextInput
 };
 
 struct KeyEvent {
@@ -42,15 +43,26 @@ struct MouseButtonEvent {
 struct MouseScrollEvent {
     double xOffset{0.0};
     double yOffset{0.0};
+    // Cursor position in logical window coordinates when scrolling occurred.
+    double x{0.0};
+    double y{0.0};
 };
 
 // New framebuffer size in pixels, matching Window::getWidth/getHeight.
 struct WindowResizeEvent {
     int width{0};
     int height{0};
+    int logicalWidth{0};
+    int logicalHeight{0};
 };
 
 struct WindowCloseEvent {};
+
+// One Unicode code point from the platform's text input system, independent
+// of physical keys. This is not a UTF-8 byte or an IME composition event.
+struct TextInputEvent {
+    char32_t codepoint{U'\0'};
+};
 
 // A single input or window event. The type is derived from the payload, so
 // the two can never disagree. Use type() to switch and getIf<T>() to read.
@@ -62,6 +74,7 @@ public:
     explicit Event(const MouseScrollEvent& event);
     explicit Event(const WindowResizeEvent& event);
     explicit Event(const WindowCloseEvent& event);
+    explicit Event(const TextInputEvent& event);
 
     EventType type() const;
 
@@ -79,7 +92,8 @@ private:
         MouseButtonEvent,
         MouseScrollEvent,
         WindowResizeEvent,
-        WindowCloseEvent
+        WindowCloseEvent,
+        TextInputEvent
     > data_;
 };
 
