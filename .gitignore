@@ -1,7 +1,7 @@
-'EOF'
-build/
+/build/
+/cmake-build-*/
+CMakeUserPresets.json
 *.o
 *.out
 .vscode/
 .idea/
-EOF

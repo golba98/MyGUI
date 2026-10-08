@@ -181,6 +181,21 @@ void testPositionAndScroll() {
         && input.isMouseDown(gui::MouseButton::Left), "scroll and edges reset without resetting held state or position");
 }
 
+void testFocusLoss() {
+    gui::Input input;
+    key(input, gui::Key::A, gui::KeyAction::Press);
+    button(input, gui::MouseButton::Left, gui::ButtonAction::Press);
+    input.beginFrame();
+    input.processEvent(gui::Event{gui::WindowFocusEvent{false}});
+    check(!input.isKeyDown(gui::Key::A) && input.isKeyReleased(gui::Key::A)
+        && !input.isMouseDown(gui::MouseButton::Left) && input.isMouseReleased(gui::MouseButton::Left),
+        "focus loss releases held keys and buttons with release edges");
+    input.processEvent(gui::Event{gui::WindowFocusEvent{true}});
+    input.processEvent(gui::Event{gui::CursorEnterEvent{false}});
+    check(!input.isKeyDown(gui::Key::A) && !input.isMouseDown(gui::MouseButton::Left),
+        "focus regain and cursor boundary events never synthesize presses");
+}
+
 } // namespace
 
 int main() {
@@ -189,6 +204,7 @@ int main() {
         testKeys();
         testButtons();
         testPositionAndScroll();
+        testFocusLoss();
     }
     catch (const std::exception& error) {
         std::fprintf(stderr, "Error: %s\n", error.what());

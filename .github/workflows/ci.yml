@@ -1,0 +1,32 @@
+name: Linux build and tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [debug, release]
+    env:
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libglfw3-dev libgl1-mesa-dev libfreetype-dev xvfb xauth
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} --parallel 2
+      - name: Headless and OpenGL tests
+        run: xvfb-run -a ctest --preset ${{ matrix.preset }}
+      - name: Demo smoke test from another directory
+        run: |
+          demo="$GITHUB_WORKSPACE/build/${{ matrix.preset }}/MyGUI"
+          cd /tmp
+          xvfb-run -a "$demo" --frames 3

@@ -16,7 +16,9 @@ enum class EventType {
     MouseScrolled,
     WindowResized,
     WindowClosed,
-    TextInput
+    TextInput,
+    WindowFocusChanged,
+    CursorEntered
 };
 
 struct KeyEvent {
@@ -57,6 +59,8 @@ struct WindowResizeEvent {
 };
 
 struct WindowCloseEvent {};
+struct WindowFocusEvent { bool focused{false}; };
+struct CursorEnterEvent { bool entered{false}; };
 
 // One Unicode code point from the platform's text input system, independent
 // of physical keys. This is not a UTF-8 byte or an IME composition event.
@@ -75,6 +79,8 @@ public:
     explicit Event(const WindowResizeEvent& event);
     explicit Event(const WindowCloseEvent& event);
     explicit Event(const TextInputEvent& event);
+    explicit Event(const WindowFocusEvent& event);
+    explicit Event(const CursorEnterEvent& event);
 
     EventType type() const;
 
@@ -93,7 +99,9 @@ private:
         MouseScrollEvent,
         WindowResizeEvent,
         WindowCloseEvent,
-        TextInputEvent
+        TextInputEvent,
+        WindowFocusEvent,
+        CursorEnterEvent
     > data_;
 };
 

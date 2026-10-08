@@ -43,6 +43,12 @@ Event::Event(const WindowCloseEvent& event)
 Event::Event(const TextInputEvent& event)
     : type_{EventType::TextInput}, data_{event} {}
 
+Event::Event(const WindowFocusEvent& event)
+    : type_{EventType::WindowFocusChanged}, data_{event} {}
+
+Event::Event(const CursorEnterEvent& event)
+    : type_{EventType::CursorEntered}, data_{event} {}
+
 EventType Event::type() const {
     return type_;
 }

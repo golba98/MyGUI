@@ -3,6 +3,9 @@
 // then reads pixels back. Requires a display for the hidden GLFW window.
 
 #include "gui/Panel.hpp"
+#include "gui/Button.hpp"
+#include "gui/UIContext.hpp"
+#include "gui/Font.hpp"
 #include "gui/Renderer.hpp"
 
 #define GLFW_INCLUDE_NONE
@@ -14,6 +17,9 @@
 #include <initializer_list>
 #include <stdexcept>
 #include <string>
+#include <cstdlib>
+#include <fstream>
+#include <vector>
 
 namespace {
 
@@ -99,7 +105,7 @@ private:
 class Target {
 public:
     Target(const TestGL& gl, int width, int height)
-        : gl_{gl}, height_{height} {
+        : gl_{gl}, width_{width}, height_{height} {
         gl_.GenRenderbuffers(1, &colorBuffer_);
         gl_.BindRenderbuffer(GL_RENDERBUFFER, colorBuffer_);
         gl_.RenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, width, height);
@@ -122,6 +128,12 @@ public:
     Target(const Target&) = delete;
     Target& operator=(const Target&) = delete;
 
+    std::vector<unsigned char> pixels() const {
+        std::vector<unsigned char> rgba(static_cast<std::size_t>(width_) * height_ * 4);
+        gl_.ReadPixels(0, 0, width_, height_, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        return rgba;
+    }
+
     // Reads the pixel at physical coordinates with a top-left origin.
     gui::Color pixel(int x, int y) const {
         unsigned char rgba[4]{};
@@ -132,7 +144,7 @@ public:
 
 private:
     const TestGL& gl_;
-    int height_{0};
+    int width_{0}, height_{0};
     GLuint framebuffer_{0};
     GLuint colorBuffer_{0};
 };
@@ -323,6 +335,155 @@ void testResize(gui::Renderer& renderer, const TestGL& gl) {
     }
 }
 
+void testNestedClips(gui::Renderer& renderer, const TestGL& gl) {
+    for (const auto size : {gui::Size{200, 120}, gui::Size{300, 180}, gui::Size{400, 240}, gui::Size{400, 180}}) {
+        const auto viewport = makeViewport(200, 120, static_cast<int>(size.width), static_cast<int>(size.height));
+        const Target target{gl, viewport.framebufferWidth, viewport.framebufferHeight};
+        renderer.beginFrame(viewport); renderer.clear(background);
+        renderer.pushClip({10, 10, 100, 80}); renderer.drawRect({0, 0, 200, 120}, red);
+        renderer.pushClip({60, 40, 100, 70}); renderer.drawRect({0, 0, 200, 120}, green);
+        renderer.popClip(); renderer.popClip();
+        renderer.drawRect({150, 10, 20, 20}, red);
+        renderer.pushClip({1, 1, 0, 10}); renderer.drawRect({0, 0, 200, 120}, green); renderer.popClip();
+        renderer.endFrame();
+        const auto sample = [&](int x, int y, const gui::Color& color, const char* label) {
+            expectPixel(target, static_cast<int>(x * viewport.scaleX()), static_cast<int>(y * viewport.scaleY()), color, label);
+        };
+        sample(20, 20, red, "parent clip preserves its earlier batch");
+        sample(70, 50, green, "nested clip intersects its parent");
+        sample(110, 50, background, "nested clip cannot extend beyond parent right edge");
+        sample(70, 90, background, "top-left to bottom-left scissor conversion clips bottom edge");
+        sample(160, 20, red, "popClip restores unclipped subsequent draws");
+        expectNoGLError(gl, "nested clips at independent display scales");
+    }
+    const Target target{gl, 300, 180};
+    renderer.beginFrame(makeViewport(200, 120, 300, 180)); renderer.clear(background);
+    renderer.pushClip({10.5f, 10.5f, 20, 20}); renderer.drawRect({0, 0, 200, 120}, red); renderer.popClip(); renderer.endFrame();
+    expectCovers(target, 15, 15, 46, 46, red, "fractional clip uses outward-rounded physical edges:");
+    renderer.beginFrame(makeViewport(200, 120, 300, 180));
+    renderer.pushClip({10, 10, 20, 20}); renderer.drawRect({0, 0, 200, 120}, red);
+    renderer.clear(green); renderer.drawRect({0, 0, 200, 120}, red); renderer.popClip(); renderer.endFrame();
+    expectPixel(target, 0, 0, green, "clear bypasses clip and discards previous batches");
+    expectPixel(target, 20, 20, red, "clear retains the logical clip for subsequent drawing");
+    bool caught = false;
+    try { renderer.popClip(); } catch (const std::logic_error&) { caught = true; }
+    check(caught, "clip underflow is rejected");
+    renderer.pushClip({0, 0, 10, 10}); caught = false;
+    try { renderer.endFrame(); } catch (const std::logic_error&) { caught = true; }
+    check(caught, "unbalanced frame clip stack is rejected");
+    renderer.beginFrame(makeViewport(200, 120, 300, 180)); renderer.endFrame();
+}
+
+void testUnpackState(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    PFNGLPIXELSTOREIPROC pixelStore{};
+    PFNGLGETINTEGERVPROC getInteger{};
+    loadFunction(pixelStore, "glPixelStorei"); loadFunction(getInteger, "glGetIntegerv");
+    constexpr GLenum names[]{GL_UNPACK_ALIGNMENT, GL_UNPACK_ROW_LENGTH, GL_UNPACK_SKIP_ROWS, GL_UNPACK_SKIP_PIXELS};
+    constexpr GLint unusual[]{8, 17, 1, 2};
+    GLint original[4]{};
+    for (int i = 0; i < 4; ++i) { getInteger(names[i], &original[i]); pixelStore(names[i], unusual[i]); }
+    const Target target{gl, 100, 80};
+    renderer.beginFrame(makeViewport(100, 80, 100, 80)); renderer.clear({0, 0, 0, 1});
+    renderer.drawText(font, "Glyph", {5, 5}, 23, red);
+    bool restored = true;
+    for (int i = 0; i < 4; ++i) {
+        GLint current{}; getInteger(names[i], &current); restored &= current == unusual[i];
+        pixelStore(names[i], original[i]);
+    }
+    renderer.endFrame();
+    bool visible = false;
+    const auto pixels = target.pixels();
+    for (std::size_t i = 0; i < pixels.size(); i += 4) visible |= pixels[i] > 100;
+    check(restored && visible, "glyph upload ignores inherited pixel unpack state and restores it");
+    expectNoGLError(gl, "glyph upload with inherited pixel layout");
+}
+
+void testText(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    constexpr gui::Color black{0, 0, 0, 1}, white{1, 1, 1, 1};
+    for (const auto size : {gui::Size{200, 100}, gui::Size{300, 150}, gui::Size{400, 200}, gui::Size{400, 150}}) {
+        const auto viewport = makeViewport(200, 100, static_cast<int>(size.width), static_cast<int>(size.height));
+        const Target target{gl, viewport.framebufferWidth, viewport.framebufferHeight};
+        renderer.beginFrame(viewport); renderer.clear(black);
+        renderer.pushClip({10, 10, 80, 60});
+        renderer.drawText(font, "Hello, café!\nUnicode", {10, 10}, 20, white);
+        renderer.popClip(); renderer.endFrame();
+        const auto pixels = target.pixels();
+        std::size_t visible = 0;
+        for (std::size_t i = 0; i < pixels.size(); i += 4) if (pixels[i] > 20) ++visible;
+        check(visible > 100, "text produces visible glyph coverage at normal, HiDPI, and nonuniform scales");
+        const int right = static_cast<int>(90 * viewport.scaleX());
+        for (int y = 0; y < viewport.framebufferHeight; y += 5) expectPixel(target, right, y, black, "text stays inside its clip");
+        expectNoGLError(gl, "text at independent display scales");
+    }
+    const Target target{gl, 200, 100};
+    renderer.beginFrame(makeViewport(200, 100, 200, 100)); renderer.clear(black);
+    renderer.drawText(font, "Opaque then covered", {5, 5}, 20, white);
+    renderer.drawRect({0, 0, 200, 50}, red);
+    renderer.drawText(font, "Later text", {5, 50}, 20, green);
+    renderer.endFrame();
+    expectPixel(target, 15, 20, red, "later rectangle covers earlier text");
+    bool greenFound = false;
+    const auto ordered = target.pixels();
+    for (std::size_t i = 0; i < ordered.size(); i += 4) greenFound |= ordered[i + 1] > 100;
+    check(greenFound, "later text renders after rectangles without losing texture binding");
+    renderer.beginFrame(makeViewport(200, 100, 200, 100)); renderer.clear(black);
+    renderer.drawText(font, "Alpha", {5, 5}, 30, {0.8f, 0, 0, 0.5f}); renderer.endFrame();
+    unsigned char maximum = 0;
+    const auto translucent = target.pixels();
+    for (std::size_t i = 0; i < translucent.size(); i += 4) maximum = std::max(maximum, translucent[i]);
+    check(maximum > 60 && maximum <= 104, "glyph coverage multiplies text alpha before blending");
+    renderer.beginFrame(makeViewport(200, 100, 200, 100)); renderer.clear(black);
+    renderer.drawText(font, "\xF4\x8F\xBF\xBF", {5, 5}, 30, white); renderer.endFrame();
+    bool fallbackFound = false;
+    const auto fallback = target.pixels();
+    for (std::size_t i = 0; i < fallback.size(); i += 4) fallbackFound |= fallback[i] > 100;
+    check(fallbackFound, "unsupported Unicode renders a visible fallback glyph");
+    expectNoGLError(gl, "text ordering, transparency and fallback");
+}
+
+void testAtlasGrowth(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    const Target target{gl, 100, 80};
+    const auto viewport = makeViewport(100, 80, 100, 80);
+    renderer.beginFrame(viewport); renderer.clear({0, 0, 0, 1});
+    renderer.drawText(font, "A", {10, 10}, 32, red); renderer.endFrame();
+    const auto before = target.pixels();
+    renderer.beginFrame(viewport); renderer.clear({0, 0, 0, 1});
+    renderer.drawText(font, "A", {10, 10}, 32, red);
+    // Allocate several atlas pages while the first glyph is still queued.
+    for (unsigned int cp = 0x100; cp < 0x200; ++cp) {
+        const std::string text{static_cast<char>(0xC0 | (cp >> 6)), static_cast<char>(0x80 | (cp & 0x3F))};
+        renderer.drawText(font, text, {10000, 10000}, 200, green);
+    }
+    renderer.endFrame();
+    check(before == target.pixels(), "atlas growth preserves queued glyph texture coordinates and ownership");
+    expectNoGLError(gl, "glyph atlas growth");
+}
+
+void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    const Target target{gl, 640, 360};
+    const auto viewport = makeViewport(640, 360, 640, 360);
+    gui::UIContext ui;
+    auto& root = ui.root(); root.setLayout(gui::Layout::Vertical); root.setPadding({24, 24, 24, 24}); root.setSpacing(12);
+    root.setBackgroundColor({0.08f, 0.10f, 0.14f, 1});
+    auto& label = root.emplace<gui::Label>("MyGUI — text and interactive controls", font); label.setFontSize(24);
+    auto& row = root.emplace<gui::Container>(); row.setLayout(gui::Layout::Horizontal); row.setSpacing(12); row.setBackgroundColor({0, 0, 0, 0});
+    auto& normal = row.emplace<gui::Button>("Click me", font);
+    auto& disabled = row.emplace<gui::Button>("Disabled", font); disabled.setEnabled(false);
+    ui.layout(viewport); ui.requestFocus(&normal);
+    renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
+    expectPixel(target, static_cast<int>(disabled.bounds().x + 3), static_cast<int>(disabled.bounds().y + 3), disabled.style().disabled, "disabled button uses its style");
+    expectPixel(target, static_cast<int>(std::ceil(normal.bounds().x)), static_cast<int>(std::ceil(normal.bounds().y)), normal.style().focus, "focused button displays a focus border");
+    expectNoGLError(gl, "widget tree rendering");
+    if (const auto* filename = std::getenv("MYGUI_RENDER_SNAPSHOT")) {
+        std::ofstream stream(filename, std::ios::binary);
+        if (!stream) throw std::runtime_error("Cannot write render snapshot");
+        stream << "P6\n640 360\n255\n";
+        const auto rgba = target.pixels();
+        for (int y = 359; y >= 0; --y) for (int x = 0; x < 640; ++x)
+            stream.write(reinterpret_cast<const char*>(rgba.data() + (static_cast<std::size_t>(y) * 640 + x) * 4), 3);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -338,6 +499,12 @@ int main() {
         testBackgroundColor(renderer, gl);
         testHiDpi(renderer, gl);
         testResize(renderer, gl);
+        testNestedClips(renderer, gl);
+        const auto font = gui::Font::load(MYGUI_TEST_FONT);
+        testUnpackState(renderer, gl, font);
+        testText(renderer, gl, font);
+        testAtlasGrowth(renderer, gl, font);
+        testWidgetRendering(renderer, gl, font);
     }
     catch (const std::exception& error) {
         std::fprintf(stderr, "Error: %s\n", error.what());
