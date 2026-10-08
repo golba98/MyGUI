@@ -3,6 +3,9 @@
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <utility>
+#include <algorithm>
+#include <list>
+#include <vector>
 
 namespace gui {
 
@@ -59,10 +62,36 @@ Modifiers toModifiers(int mods) {
 
 } // namespace
 
-Window::Window(int width, int height, const std::string& title) {
-    if (!glfwInit()) {
-        throw std::runtime_error("Failed to initialize GLFW");
+struct Window::State {
+    GLFWwindow* window_{nullptr};
+    int width_{0}, height_{0};
+    EventCallback eventCallback_;
+    Input input_;
+    std::list<Event> events_;
+    std::exception_ptr pendingException_;
+    EventDelivery delivery_{EventDelivery::Both};
+
+    static std::vector<State*>& live() {
+        static std::vector<State*> windows;
+        return windows;
     }
+    State() {
+        const bool first = live().empty();
+        if (first && !glfwInit()) throw std::runtime_error("Failed to initialize GLFW");
+        try { live().push_back(this); }
+        catch (...) { if (first) glfwTerminate(); throw; }
+    }
+    ~State() {
+        if (window_) glfwDestroyWindow(window_);
+        auto& windows = live();
+        windows.erase(std::find(windows.begin(), windows.end(), this));
+        if (windows.empty()) glfwTerminate();
+    }
+};
+
+Window::Window(int width, int height, const std::string& title) : state_{std::make_unique<State>()} {
+
+    if (width <= 0 || height <= 0) throw std::invalid_argument("Window dimensions must be positive");
 
     // The renderer targets the OpenGL 3.3 core profile.
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -72,7 +101,7 @@ Window::Window(int width, int height, const std::string& title) {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 #endif
 
-    window_ = glfwCreateWindow(
+    state_->window_ = glfwCreateWindow(
         width,
         height,
         title.c_str(),
@@ -80,105 +109,91 @@ Window::Window(int width, int height, const std::string& title) {
         nullptr
     );
 
-    if (!window_) {
-        glfwTerminate();
+    if (!state_->window_) {
         throw std::runtime_error("Failed to create GLFW window");
     }
 
-    glfwMakeContextCurrent(window_);
+    glfwMakeContextCurrent(state_->window_);
 
-    glfwSetWindowUserPointer(window_, this);
+    glfwSetWindowUserPointer(state_->window_, this);
     glfwSetFramebufferSizeCallback(
-        window_,
+        state_->window_,
         &Window::framebufferSizeCallback
     );
-    glfwSetKeyCallback(window_, &Window::keyCallback);
-    glfwSetCharCallback(window_, &Window::charCallback);
-    glfwSetWindowSizeCallback(window_, &Window::windowSizeCallback);
-    glfwSetCursorPosCallback(window_, &Window::cursorPosCallback);
-    glfwSetMouseButtonCallback(window_, &Window::mouseButtonCallback);
-    glfwSetScrollCallback(window_, &Window::scrollCallback);
-    glfwSetWindowCloseCallback(window_, &Window::windowCloseCallback);
+    glfwSetKeyCallback(state_->window_, &Window::keyCallback);
+    glfwSetCharCallback(state_->window_, &Window::charCallback);
+    glfwSetWindowSizeCallback(state_->window_, &Window::windowSizeCallback);
+    glfwSetCursorPosCallback(state_->window_, &Window::cursorPosCallback);
+    glfwSetMouseButtonCallback(state_->window_, &Window::mouseButtonCallback);
+    glfwSetScrollCallback(state_->window_, &Window::scrollCallback);
+    glfwSetWindowCloseCallback(state_->window_, &Window::windowCloseCallback);
+    glfwSetWindowFocusCallback(state_->window_, &Window::focusCallback);
+    glfwSetCursorEnterCallback(state_->window_, &Window::cursorEnterCallback);
 
     // Seed the cursor position; otherwise it reads 0,0 until the mouse moves.
     double cursorX{};
     double cursorY{};
-    glfwGetCursorPos(window_, &cursorX, &cursorY);
-    input_.processEvent(Event{MouseMoveEvent{.x = cursorX, .y = cursorY}});
+    glfwGetCursorPos(state_->window_, &cursorX, &cursorY);
+    state_->input_.processEvent(Event{MouseMoveEvent{.x = cursorX, .y = cursorY}});
 
     // Query the real framebuffer size; it may not match width/height on HiDPI.
     int framebufferWidth{};
     int framebufferHeight{};
 
     glfwGetFramebufferSize(
-        window_,
+        state_->window_,
         &framebufferWidth,
         &framebufferHeight
     );
 
-    width_ = framebufferWidth;
-    height_ = framebufferHeight;
-    glViewport(0, 0, width_, height_);
+    state_->width_ = framebufferWidth;
+    state_->height_ = framebufferHeight;
 }
 
-Window::~Window() {
-    if (window_) {
-        glfwDestroyWindow(window_);
-        glfwTerminate();
-    }
-}
+Window::~Window() = default;
 
-Window::Window(Window&& other) noexcept
-    : window_{std::exchange(other.window_, nullptr)},
-      width_{other.width_},
-      height_{other.height_},
-      eventCallback_{std::move(other.eventCallback_)},
-      input_{other.input_},
-      events_{std::move(other.events_)},
-      pendingException_{std::move(other.pendingException_)} {
-    // GLFW still points at the moved-from object; redirect it to this one.
-    if (window_) {
-        glfwSetWindowUserPointer(window_, this);
-    }
+Window::Window(Window&& other) noexcept : state_{std::move(other.state_)} {
+    if (state_) glfwSetWindowUserPointer(state_->window_, this);
 }
 
 Window& Window::operator=(Window&& other) noexcept {
     if (this != &other) {
-        if (window_) {
-            glfwDestroyWindow(window_);
-        }
-
-        window_ = std::exchange(other.window_, nullptr);
-        width_ = other.width_;
-        height_ = other.height_;
-        eventCallback_ = std::move(other.eventCallback_);
-        input_ = other.input_;
-        events_ = std::move(other.events_);
-        pendingException_ = std::move(other.pendingException_);
-
-        if (window_) {
-            glfwSetWindowUserPointer(window_, this);
-        }
+        state_ = std::move(other.state_);
+        if (state_) glfwSetWindowUserPointer(state_->window_, this);
     }
-
     return *this;
 }
 
 bool Window::shouldClose() const {
-    return glfwWindowShouldClose(window_);
+    if (!state_) return true;
+    return glfwWindowShouldClose(state_->window_);
 }
 
 void Window::pollEvents() {
-    // Clear last frame's pressed/released edges before new events arrive.
-    input_.beginFrame();
+    static bool polling = false;
+    if (polling) throw std::logic_error("Recursive event polling is not allowed");
+    struct Guard { bool& flag; ~Guard() { flag = false; } } guard{polling};
+    polling = true;
+    for (auto* state : State::live()) state->input_.beginFrame();
     glfwPollEvents();
-    if (pendingException_) {
-        std::rethrow_exception(std::exchange(pendingException_, nullptr));
+    for (auto* state : State::live()) {
+        if (state->pendingException_) {
+            std::rethrow_exception(std::exchange(state->pendingException_, nullptr));
+        }
     }
 }
 
+void Window::makeContextCurrent() const {
+    glfwMakeContextCurrent(state_->window_);
+}
+
 void Window::swapBuffers() const {
-    glfwSwapBuffers(window_);
+    glfwSwapBuffers(state_->window_);
+}
+
+void Window::setSwapInterval(int interval) const {
+    makeContextCurrent();
+    glfwSwapInterval(interval);
 }
 
 GLProcLoader Window::glProcLoader() const {
@@ -186,41 +201,56 @@ GLProcLoader Window::glProcLoader() const {
 }
 
 std::optional<Event> Window::nextEvent() {
-    if (events_.empty()) {
+    if (state_->events_.empty()) {
         return std::nullopt;
     }
-    Event event = std::move(events_.front());
-    events_.pop_front();
+    Event event = std::move(state_->events_.front());
+    state_->events_.pop_front();
     return event;
 }
 
 int Window::getWidth() const {
-    return width_;
+    return state_->width_;
 }
 
 int Window::getHeight() const {
-    return height_;
+    return state_->height_;
 }
 
 Viewport Window::viewport() const {
     int logicalWidth{};
     int logicalHeight{};
-    glfwGetWindowSize(window_, &logicalWidth, &logicalHeight);
+    glfwGetWindowSize(state_->window_, &logicalWidth, &logicalHeight);
 
     return Viewport{
         .logicalWidth = logicalWidth,
         .logicalHeight = logicalHeight,
-        .framebufferWidth = width_,
-        .framebufferHeight = height_
+        .framebufferWidth = state_->width_,
+        .framebufferHeight = state_->height_
     };
 }
 
 void Window::setEventCallback(EventCallback callback) {
-    eventCallback_ = std::move(callback);
+    state_->eventCallback_ = std::move(callback);
 }
 
 const Input& Window::input() const {
-    return input_;
+    return state_->input_;
+}
+
+void Window::setEventDelivery(EventDelivery delivery) {
+    state_->delivery_ = delivery;
+    if (delivery == EventDelivery::Callback) state_->events_.clear();
+}
+
+EventDelivery Window::eventDelivery() const { return state_->delivery_; }
+
+void Window::focusCallback(GLFWwindow* window, int focused) {
+    if (auto* self = windowFrom(window)) self->emit(Event{WindowFocusEvent{focused != 0}});
+}
+
+void Window::cursorEnterCallback(GLFWwindow* window, int entered) {
+    if (auto* self = windowFrom(window)) self->emit(Event{CursorEnterEvent{entered != 0}});
 }
 
 void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
@@ -300,10 +330,9 @@ void Window::windowCloseCallback(GLFWwindow* window) {
 }
 
 void Window::onFramebufferResize(int width, int height) {
-    width_ = width;
-    height_ = height;
+    state_->width_ = width;
+    state_->height_ = height;
 
-    glViewport(0, 0, width, height);
 
     const auto size = viewport();
     emitResize(size.logicalWidth, size.logicalHeight);
@@ -325,22 +354,24 @@ void Window::charCallback(GLFWwindow* window, unsigned int codepoint) {
 
 void Window::emitResize(int logicalWidth, int logicalHeight) {
     emit(Event{WindowResizeEvent{
-        .width = width_, .height = height_,
+        .width = state_->width_, .height = state_->height_,
         .logicalWidth = logicalWidth, .logicalHeight = logicalHeight
     }});
 }
 
 void Window::emit(const Event& event) noexcept {
+    auto* state = state_.get();
     try {
-        input_.processEvent(event);
-        events_.push_back(event);
-        if (eventCallback_) {
-            eventCallback_(event);
+        state->input_.processEvent(event);
+        if (state->delivery_ != EventDelivery::Callback) state->events_.push_back(event);
+        if (state->delivery_ != EventDelivery::Queue) {
+            const auto callback = state->eventCallback_;
+            if (callback) callback(event);
         }
     }
     catch (...) {
-        if (!pendingException_) {
-            pendingException_ = std::current_exception();
+        if (!state->pendingException_) {
+            state->pendingException_ = std::current_exception();
         }
     }
 }

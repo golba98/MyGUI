@@ -9,6 +9,17 @@
 
 // X(type, name): every function the renderer uses, bound as gui::gl::name.
 #define MYGUI_GL_FUNCTIONS(X) \
+    X(PFNGLSCISSORPROC, Scissor) \
+    X(PFNGLGETINTEGERVPROC, GetIntegerv) \
+    X(PFNGLGENTEXTURESPROC, GenTextures) \
+    X(PFNGLDELETETEXTURESPROC, DeleteTextures) \
+    X(PFNGLBINDTEXTUREPROC, BindTexture) \
+    X(PFNGLACTIVETEXTUREPROC, ActiveTexture) \
+    X(PFNGLTEXIMAGE2DPROC, TexImage2D) \
+    X(PFNGLTEXSUBIMAGE2DPROC, TexSubImage2D) \
+    X(PFNGLTEXPARAMETERIPROC, TexParameteri) \
+    X(PFNGLPIXELSTOREIPROC, PixelStorei) \
+    X(PFNGLUNIFORM1IPROC, Uniform1i) \
     X(PFNGLVIEWPORTPROC, Viewport) \
     X(PFNGLENABLEPROC, Enable) \
     X(PFNGLDISABLEPROC, Disable) \

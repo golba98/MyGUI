@@ -245,7 +245,11 @@ void Input::onScroll(double xOffset, double yOffset) {
 }
 
 void Input::processEvent(const Event& event) {
-    if (const auto* key = event.getIf<KeyEvent>()) {
+    if (const auto* focus = event.getIf<WindowFocusEvent>(); focus && !focus->focused) {
+        for (auto& key : keys_) setDown(key, false);
+        for (auto& button : mouseButtons_) setDown(button, false);
+    }
+    else if (const auto* key = event.getIf<KeyEvent>()) {
         onKey(key->key, key->action);
     }
     else if (const auto* move = event.getIf<MouseMoveEvent>()) {

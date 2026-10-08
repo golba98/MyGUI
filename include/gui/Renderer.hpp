@@ -5,9 +5,14 @@
 #include "gui/Viewport.hpp"
 #include "gui/detail/GLHandle.hpp"
 
+#include <memory>
+#include <optional>
+#include <string_view>
 #include <vector>
 
 namespace gui {
+
+class Font;
 
 // Returns the address of an OpenGL function, or nullptr if it is unavailable.
 // glfwGetProcAddress has exactly this signature.
@@ -45,7 +50,14 @@ public:
     // size are ignored.
     void drawRect(const Rect& rect, const Color& color);
 
-    // Submits all rectangles queued since beginFrame().
+    // Intersects the current clip, in logical coordinates. popClip rejects underflow.
+    void pushClip(const Rect& clip);
+    void popClip();
+    // origin is the top-left of the text line box, in logical units.
+    void drawText(const std::shared_ptr<Font>& font, std::string_view text,
+                  Point origin, float logicalSize, const Color& color);
+
+    // Submits all rectangles and text queued since beginFrame().
     void endFrame();
 
 private:
@@ -53,14 +65,25 @@ private:
         float x;
         float y;
         Color color;
+        float u, v;
     };
 
+    struct Command {
+        std::size_t first{0}, count{0};
+        unsigned int texture{0};
+        std::optional<Rect> clip;
+    };
+    struct TextCache;
+    void queueQuad(const Rect& rect, const Color& color, unsigned int texture, const Rect& uv);
     detail::GLHandle program_;
     detail::GLHandle vertexArray_;
     detail::GLHandle vertexBuffer_;
-    int logicalSizeLocation_{-1};
+    int logicalSizeLocation_{-1}, texturedLocation_{-1};
     Viewport viewport_{};
     std::vector<Vertex> vertices_;
+    std::vector<Command> commands_;
+    std::vector<Rect> clips_;
+    std::unique_ptr<TextCache> textCache_;
 };
 
 } // namespace gui

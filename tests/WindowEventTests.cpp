@@ -9,6 +9,8 @@
 #include <chrono>
 #include <cstdio>
 #include <exception>
+#include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -42,6 +44,8 @@ struct Callbacks {
     GLFWwindowsizefun size;
     GLFWframebuffersizefun framebuffer;
     GLFWwindowclosefun close;
+    GLFWwindowfocusfun focus;
+    GLFWcursorenterfun enter;
 
     explicit Callbacks(GLFWwindow* window)
         : key{registered(window, glfwSetKeyCallback)},
@@ -51,7 +55,9 @@ struct Callbacks {
           scroll{registered(window, glfwSetScrollCallback)},
           size{registered(window, glfwSetWindowSizeCallback)},
           framebuffer{registered(window, glfwSetFramebufferSizeCallback)},
-          close{registered(window, glfwSetWindowCloseCallback)} {}
+          close{registered(window, glfwSetWindowCloseCallback)},
+          focus{registered(window, glfwSetWindowFocusCallback)},
+          enter{registered(window, glfwSetCursorEnterCallback)} {}
 };
 
 gui::Event next(gui::Window& window) {
@@ -186,6 +192,10 @@ void testResize(gui::Window& window, GLFWwindow* native, const Callbacks& callba
         "logical resize callback reports framebuffer and logical dimensions");
 
     for (const int scale : {1, 2}) {
+        const auto getInteger = reinterpret_cast<PFNGLGETINTEGERVPROC>(window.glProcLoader()("glGetIntegerv"));
+        if (!getInteger) throw std::runtime_error("Missing glGetIntegerv");
+        GLint before[4]{};
+        getInteger(GL_VIEWPORT, before);
         callbacks.framebuffer(native, initial.logicalWidth * scale, initial.logicalHeight * scale);
         const auto resize = next(window);
         const auto& size = payload<gui::WindowResizeEvent>(resize);
@@ -198,12 +208,10 @@ void testResize(gui::Window& window, GLFWwindow* native, const Callbacks& callba
         const auto movement = next(window);
         check(payload<gui::MouseMoveEvent>(movement).x == 200.25 && window.input().mouseX() == 200.25
             && window.input().mouseY() == 120.5, "normal and HiDPI framebuffer sizes never rescale mouse coordinates");
-        const auto getInteger = reinterpret_cast<PFNGLGETINTEGERVPROC>(window.glProcLoader()("glGetIntegerv"));
-        if (!getInteger) throw std::runtime_error("Missing glGetIntegerv");
         GLint actual[4]{};
         getInteger(GL_VIEWPORT, actual);
-        check(actual[0] == 0 && actual[1] == 0 && actual[2] == size.width && actual[3] == size.height,
-            "framebuffer callback preserves OpenGL viewport updates");
+        check(actual[0] == before[0] && actual[1] == before[1] && actual[2] == before[2] && actual[3] == before[3],
+            "framebuffer callback leaves the current context viewport untouched");
     }
     callbacks.framebuffer(native, 0, 0);
     const auto minimized = next(window);
@@ -230,6 +238,87 @@ void testResize(gui::Window& window, GLFWwindow* native, const Callbacks& callba
         "actual window resize produces framework resize events");
 }
 
+void testDeliveryModes(gui::Window& window, GLFWwindow* native, const Callbacks& callbacks) {
+    drain(window);
+    int count = 0;
+    window.setEventCallback([&](const gui::Event&) { ++count; });
+    window.setEventDelivery(gui::EventDelivery::Queue);
+    callbacks.character(native, 'Q');
+    check(count == 0 && next(window).type() == gui::EventType::TextInput, "queue-only mode bypasses callback");
+    callbacks.character(native, 'X');
+    window.setEventDelivery(gui::EventDelivery::Callback);
+    check(!window.nextEvent(), "callback-only mode discards previous unread queue");
+    for (int i = 0; i < 50000; ++i) callbacks.character(native, 'C');
+    check(count == 50000 && !window.nextEvent(), "callback-only delivery never accumulates queued events");
+    window.setEventCallback([&](const gui::Event&) { ++count; window.setEventCallback({}); });
+    callbacks.character(native, 'R');
+    callbacks.character(native, 'S');
+    check(count == 50001, "callback can safely clear itself during invocation");
+    window.setEventDelivery(gui::EventDelivery::Both);
+    callbacks.character(native, 'B');
+    check(payload<gui::TextInputEvent>(next(window)).codepoint == U'B' && !window.nextEvent(),
+          "re-enabling the queue records only future events");
+    callbacks.key(native, GLFW_KEY_A, 1, GLFW_PRESS, 0);
+    callbacks.button(native, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+    callbacks.focus(native, GLFW_FALSE);
+    check(!window.input().isKeyDown(gui::Key::A) && !window.input().isMouseDown(gui::MouseButton::Left),
+          "focus loss releases held keys and mouse buttons");
+    callbacks.enter(native, GLFW_FALSE);
+    callbacks.enter(native, GLFW_TRUE);
+    callbacks.focus(native, GLFW_TRUE);
+    drain(window);
+}
+
+void testWindowLifetime(gui::Window& survivor, GLFWwindow* native, const Callbacks& callbacks) {
+    drain(survivor);
+    {
+        gui::Window temporary{100, 100, "temporary"};
+        const auto otherNative = glfwGetCurrentContext();
+        const Callbacks otherCallbacks{otherNative};
+        otherCallbacks.key(otherNative, GLFW_KEY_C, 1, GLFW_PRESS, 0);
+        check(temporary.input().isKeyPressed(gui::Key::C), "second window receives independent state");
+        survivor.pollEvents();
+        check(!temporary.input().isKeyPressed(gui::Key::C), "one global poll resets every window's frame edges");
+        bool failed = false;
+        try { gui::Window invalid{0, 100, "invalid"}; } catch (const std::invalid_argument&) { failed = true; }
+        check(failed && !temporary.shouldClose(), "failed construction leaves live windows usable");
+    }
+    survivor.makeContextCurrent();
+    callbacks.character(native, 'L');
+    bool delivered = false;
+    while (auto event = survivor.nextEvent()) {
+        if (auto* text = event->getIf<gui::TextInputEvent>()) delivered |= text->codepoint == U'L';
+    }
+    check(delivered && glfwGetCurrentContext() == native && !survivor.shouldClose(),
+          "destroying a second window preserves the survivor and its context");
+    {
+        gui::Window first{100, 100, "first"};
+        gui::Window second{100, 100, "second"};
+        const auto retained = glfwGetCurrentContext();
+        first = std::move(second);
+        first.makeContextCurrent();
+        check(glfwGetCurrentContext() == retained && !first.shouldClose(), "move assignment releases only the replaced window");
+    }
+    {
+        gui::Window temporary{100, 100, "move inside callback"};
+        const auto movingNative = glfwGetCurrentContext();
+        const Callbacks movingCallbacks{movingNative};
+        std::optional<gui::Window> moved;
+        temporary.setEventCallback([&](const gui::Event&) {
+            moved.emplace(std::move(temporary));
+            throw std::runtime_error("moved callback failure");
+        });
+        movingCallbacks.character(movingNative, 'M');
+        moved->setEventCallback({});
+        check(payload<gui::TextInputEvent>(next(*moved)).codepoint == U'M', "move during callback retains the queued event");
+        bool caught = false;
+        try { survivor.pollEvents(); } catch (const std::runtime_error& error) { caught = std::string{error.what()} == "moved callback failure"; }
+        check(caught, "global polling reports exceptions from a window moved during its callback");
+    }
+    survivor.makeContextCurrent();
+    drain(survivor);
+}
+
 void testMoveAndExceptions(gui::Window& original, GLFWwindow* native, const Callbacks& callbacks) {
     int notifications = 0;
     original.setEventCallback([&](const gui::Event&) { ++notifications; });
@@ -246,7 +335,7 @@ void testMoveAndExceptions(gui::Window& original, GLFWwindow* native, const Call
     assigned = std::move(moved);
     // Destroying the target's old window detaches its context; use the retained
     // source context for the remaining integration checks.
-    glfwMakeContextCurrent(native);
+    assigned.makeContextCurrent();
     check(payload<gui::TextInputEvent>(next(assigned)).codepoint == U'M', "move assignment transfers pending queue");
     callbacks.move(native, 17.5, 21.25);
     check(assigned.input().mouseX() == 17.5 && next(assigned).type() == gui::EventType::MouseMoved
@@ -281,6 +370,8 @@ int main() {
         drain(window);
         testDelivery(window, native, callbacks);
         testResize(window, native, callbacks);
+        testDeliveryModes(window, native, callbacks);
+        testWindowLifetime(window, native, callbacks);
         testMoveAndExceptions(window, native, callbacks);
     }
     catch (const std::exception& error) {
