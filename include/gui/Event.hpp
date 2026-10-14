@@ -50,12 +50,16 @@ struct MouseScrollEvent {
     double y{0.0};
 };
 
-// New framebuffer size in pixels, matching Window::getWidth/getHeight.
+enum class ResizeSource { Window, Framebuffer };
+
+// Snapshot of both coordinate spaces after the indicated resize callback.
+// width/height are framebuffer pixels, matching Window::getWidth/getHeight.
 struct WindowResizeEvent {
     int width{0};
     int height{0};
     int logicalWidth{0};
     int logicalHeight{0};
+    ResizeSource source{ResizeSource::Window};
 };
 
 struct WindowCloseEvent {};

@@ -1,5 +1,6 @@
 // Pure framework tests: no GLFW, OpenGL, or window creation.
 #include "gui/Event.hpp"
+#include "gui/EventQueue.hpp"
 #include "gui/Geometry.hpp"
 #include "gui/Viewport.hpp"
 
@@ -7,6 +8,8 @@
 #include <exception>
 #include <initializer_list>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 namespace {
 
@@ -64,7 +67,11 @@ void testEvents() {
     const gui::Event resize{gui::WindowResizeEvent{1200, 900, 800, 600}};
     const auto& size = payload<gui::WindowResizeEvent>(resize);
     check(resize.type() == gui::EventType::WindowResized && size.width == 1200 && size.height == 900
-        && size.logicalWidth == 800 && size.logicalHeight == 600, "resize preserves both coordinate spaces");
+        && size.logicalWidth == 800 && size.logicalHeight == 600 && size.source == gui::ResizeSource::Window, "resize preserves both coordinate spaces");
+    const gui::Event framebuffer{gui::WindowResizeEvent{1600, 1200, 800, 600, gui::ResizeSource::Framebuffer}};
+    check(framebuffer.type() == gui::EventType::WindowResized
+        && payload<gui::WindowResizeEvent>(framebuffer).source == gui::ResizeSource::Framebuffer,
+        "framebuffer resize source preserves existing event type");
     const gui::Event close{gui::WindowCloseEvent{}};
     check(close.type() == gui::EventType::WindowClosed && close.getIf<gui::WindowCloseEvent>(),
         "close event construction");
@@ -196,6 +203,115 @@ void testFocusLoss() {
         "focus regain and cursor boundary events never synthesize presses");
 }
 
+
+void testMovementDeltas() {
+    gui::Input input;
+    input.beginFrame();
+    input.processEvent(gui::Event{gui::MouseMoveEvent{100.25, 50.5}});
+    check(input.mouseDeltaX() == 0 && input.mouseDeltaY() == 0,
+        "first cursor sample seeds baseline without movement");
+    input.processEvent(gui::Event{gui::MouseMoveEvent{110.5, 45.25}});
+    input.processEvent(gui::Event{gui::MouseMoveEvent{105.75, 60.75}});
+    check(input.mouseDelta().x == 5.5 && input.mouseDelta().y == 10.25,
+        "multiple movements accumulate signed fractional deltas");
+    input.processEvent(gui::Event{gui::MouseButtonEvent{
+        gui::MouseButton::Left, gui::ButtonAction::Press, 106.75, 62.75}});
+    input.processEvent(gui::Event{gui::MouseScrollEvent{1, -2, 108.75, 65.75}});
+    check(input.mouseDeltaX() == 8.5 && input.mouseDeltaY() == 15.25
+        && input.isMouseButtonPressed(gui::MouseButton::Left),
+        "button and scroll samples contribute movement without losing press edge");
+    input.beginFrame();
+    check(input.mouseDeltaX() == 0 && input.mouseDeltaY() == 0 && input.scrollY() == 0
+        && input.mouseX() == 108.75 && input.isMouseButtonDown(gui::MouseButton::Left)
+        && !input.isMouseButtonPressed(gui::MouseButton::Left),
+        "frame reset clears movement, scroll and edges while preserving baseline and held state");
+    input.processEvent(gui::Event{gui::MouseMoveEvent{100, -5}});
+    check(input.mouseDeltaX() == -8.75 && input.mouseDeltaY() == -70.75,
+        "movement across frame boundary uses previous cursor position");
+    input.processEvent(gui::Event{gui::WindowFocusEvent{false}});
+    // GLFW may synthesize button releases after the focus callback. Their
+    // cursor sample must not cause a jump when focus is later restored.
+    input.processEvent(gui::Event{gui::MouseButtonEvent{
+        gui::MouseButton::Left, gui::ButtonAction::Release, 2000, 2000}});
+    input.processEvent(gui::Event{gui::WindowFocusEvent{true}});
+    input.processEvent(gui::Event{gui::MouseMoveEvent{1000, 1000}});
+    check(input.mouseDeltaX() == -8.75 && input.mouseDeltaY() == -70.75
+        && input.isMouseButtonReleased(gui::MouseButton::Left),
+        "focus loss releases buttons and reseeding preserves movement already accumulated");
+    input.beginFrame();
+    input.processEvent(gui::Event{gui::MouseMoveEvent{1002, 1003}});
+    input.processEvent(gui::Event{gui::CursorEnterEvent{false}});
+    input.processEvent(gui::Event{gui::MouseMoveEvent{2000, 2000}});
+    input.processEvent(gui::Event{gui::CursorEnterEvent{true}});
+    input.processEvent(gui::Event{gui::MouseScrollEvent{0, 1, -100, -100}});
+    input.processEvent(gui::Event{gui::MouseMoveEvent{-101, -102}});
+    check(input.mouseDeltaX() == 1 && input.mouseDeltaY() == 1,
+        "cursor re-entry reseeds without a jump and subsequent movement accumulates");
+}
+
+void testEventQueue() {
+    static_assert(std::is_nothrow_move_constructible_v<gui::EventQueue>);
+    static_assert(std::is_nothrow_move_assignable_v<gui::EventQueue>);
+    gui::EventQueue queue;
+    check(queue.empty() && queue.size() == 0 && !queue.pop(), "new queue is empty");
+    const auto capacity = queue.capacity();
+    const auto pushNumber = [&](std::size_t i) {
+        queue.push(gui::Event{gui::KeyEvent{gui::Key::A, static_cast<int>(i)}});
+    };
+    for (std::size_t i = 0; i < capacity; ++i) pushNumber(i);
+    bool ordered = true;
+    for (std::size_t i = 0; i < capacity / 2; ++i) {
+        const auto event = queue.pop();
+        ordered = ordered && event && payload<gui::KeyEvent>(*event).scancode == static_cast<int>(i);
+    }
+    for (std::size_t i = capacity; i <= capacity + capacity / 2; ++i) pushNumber(i);
+    check(queue.capacity() == capacity * 2 && queue.size() == capacity + 1,
+        "wrapped full queue grows geometrically without dropping events");
+    for (std::size_t i = capacity / 2; i <= capacity + capacity / 2; ++i) {
+        const auto event = queue.pop();
+        ordered = ordered && event && payload<gui::KeyEvent>(*event).scancode == static_cast<int>(i);
+    }
+    check(ordered && queue.empty() && !queue.pop(), "wraparound and growth preserve FIFO order");
+    const auto grownCapacity = queue.capacity();
+    for (std::size_t i = 0; i < 10000; ++i) { pushNumber(i); (void)queue.pop(); }
+    check(queue.capacity() == grownCapacity, "steady-state queue reuses allocated capacity");
+    queue.push(gui::Event{gui::MouseMoveEvent{10.5, 20.25}});
+    queue.push(gui::Event{gui::TextInputEvent{U'\U0001F642'}});
+    queue.push(gui::Event{gui::WindowFocusEvent{false}});
+    check(queue.pop()->type() == gui::EventType::MouseMoved
+        && payload<gui::TextInputEvent>(*queue.pop()).codepoint == U'\U0001F642'
+        && queue.pop()->type() == gui::EventType::WindowFocusChanged,
+        "heterogeneous events retain ordering and Unicode payloads");
+    {
+        gui::Event source{gui::TextInputEvent{U'\u00E9'}};
+        queue.push(source);
+        source = gui::Event{gui::WindowCloseEvent{}};
+    }
+    const auto owned = queue.pop();
+    queue.clear();
+    check(owned && payload<gui::TextInputEvent>(*owned).codepoint == U'\u00E9',
+        "queue owns copied payload independently of source mutation and destruction");
+    pushNumber(42);
+    gui::EventQueue moved{std::move(queue)};
+    check(queue.empty() && !queue.pop() && payload<gui::KeyEvent>(*moved.pop()).scancode == 42,
+        "move construction transfers unread events and empties source");
+    pushNumber(43);
+    moved.push(gui::Event{gui::WindowCloseEvent{}});
+    moved = std::move(queue);
+    check(queue.empty() && moved.size() == 1 && payload<gui::KeyEvent>(*moved.pop()).scancode == 43,
+        "moved-from queue is reusable and move assignment replaces destination events");
+    pushNumber(44);
+    queue.clear();
+    check(queue.empty() && queue.capacity() == capacity, "clear retains reusable slots");
+    const auto retained = [] {
+        gui::EventQueue temporary;
+        temporary.push(gui::Event{gui::MouseMoveEvent{7.5, -2.25}});
+        return temporary.pop();
+    }();
+    check(retained && payload<gui::MouseMoveEvent>(*retained).x == 7.5,
+        "popped event remains valid after queue destruction");
+}
+
 } // namespace
 
 int main() {
@@ -205,6 +321,8 @@ int main() {
         testButtons();
         testPositionAndScroll();
         testFocusLoss();
+        testMovementDeltas();
+        testEventQueue();
     }
     catch (const std::exception& error) {
         std::fprintf(stderr, "Error: %s\n", error.what());

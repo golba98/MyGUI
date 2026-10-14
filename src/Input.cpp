@@ -162,6 +162,16 @@ double Input::mouseY() const {
     return mouseY_;
 }
 
+MousePosition Input::mouseDelta() const {
+    return {mouseDeltaX_, mouseDeltaY_};
+}
+
+double Input::mouseDeltaX() const { return mouseDeltaX_; }
+double Input::mouseDeltaY() const { return mouseDeltaY_; }
+
+bool Input::isMouseButtonPressed(MouseButton button) const { return isMousePressed(button); }
+bool Input::isMouseButtonReleased(MouseButton button) const { return isMouseReleased(button); }
+
 double Input::scrollX() const {
     return scrollX_;
 }
@@ -209,6 +219,8 @@ void Input::beginFrame() {
         button.released = false;
     }
 
+    mouseDeltaX_ = 0.0;
+    mouseDeltaY_ = 0.0;
     scrollX_ = 0.0;
     scrollY_ = 0.0;
 }
@@ -234,6 +246,11 @@ void Input::onMouseButton(MouseButton button, ButtonAction action) {
 }
 
 void Input::onMouseMove(double x, double y) {
+    if (mouseBaseline_) {
+        mouseDeltaX_ += x - mouseX_;
+        mouseDeltaY_ += y - mouseY_;
+    }
+    mouseBaseline_ = true;
     mouseX_ = x;
     mouseY_ = y;
 }
@@ -245,9 +262,15 @@ void Input::onScroll(double xOffset, double yOffset) {
 }
 
 void Input::processEvent(const Event& event) {
-    if (const auto* focus = event.getIf<WindowFocusEvent>(); focus && !focus->focused) {
-        for (auto& key : keys_) setDown(key, false);
-        for (auto& button : mouseButtons_) setDown(button, false);
+    if (const auto* focus = event.getIf<WindowFocusEvent>()) {
+        mouseBaseline_ = false;
+        if (!focus->focused) {
+            for (auto& key : keys_) setDown(key, false);
+            for (auto& button : mouseButtons_) setDown(button, false);
+        }
+    }
+    else if (event.getIf<CursorEnterEvent>()) {
+        mouseBaseline_ = false;
     }
     else if (const auto* key = event.getIf<KeyEvent>()) {
         onKey(key->key, key->action);

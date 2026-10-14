@@ -1,10 +1,10 @@
 #include "gui/Window.hpp"
+#include "gui/EventQueue.hpp"
 
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <utility>
 #include <algorithm>
-#include <list>
 #include <vector>
 
 namespace gui {
@@ -65,9 +65,10 @@ Modifiers toModifiers(int mods) {
 struct Window::State {
     GLFWwindow* window_{nullptr};
     int width_{0}, height_{0};
-    EventCallback eventCallback_;
+    int logicalWidth_{0}, logicalHeight_{0};
+    std::shared_ptr<EventCallback> eventCallback_;
     Input input_;
-    std::list<Event> events_;
+    EventQueue events_;
     std::exception_ptr pendingException_;
     EventDelivery delivery_{EventDelivery::Both};
 
@@ -146,6 +147,7 @@ Window::Window(int width, int height, const std::string& title) : state_{std::ma
         &framebufferHeight
     );
 
+    glfwGetWindowSize(state_->window_, &state_->logicalWidth_, &state_->logicalHeight_);
     state_->width_ = framebufferWidth;
     state_->height_ = framebufferHeight;
 }
@@ -201,12 +203,7 @@ GLProcLoader Window::glProcLoader() const {
 }
 
 std::optional<Event> Window::nextEvent() {
-    if (state_->events_.empty()) {
-        return std::nullopt;
-    }
-    Event event = std::move(state_->events_.front());
-    state_->events_.pop_front();
-    return event;
+    return state_->events_.pop();
 }
 
 int Window::getWidth() const {
@@ -218,20 +215,16 @@ int Window::getHeight() const {
 }
 
 Viewport Window::viewport() const {
-    int logicalWidth{};
-    int logicalHeight{};
-    glfwGetWindowSize(state_->window_, &logicalWidth, &logicalHeight);
-
     return Viewport{
-        .logicalWidth = logicalWidth,
-        .logicalHeight = logicalHeight,
+        .logicalWidth = state_->logicalWidth_,
+        .logicalHeight = state_->logicalHeight_,
         .framebufferWidth = state_->width_,
         .framebufferHeight = state_->height_
     };
 }
 
 void Window::setEventCallback(EventCallback callback) {
-    state_->eventCallback_ = std::move(callback);
+    state_->eventCallback_ = callback ? std::make_shared<EventCallback>(std::move(callback)) : nullptr;
 }
 
 const Input& Window::input() const {
@@ -332,15 +325,18 @@ void Window::windowCloseCallback(GLFWwindow* window) {
 void Window::onFramebufferResize(int width, int height) {
     state_->width_ = width;
     state_->height_ = height;
-
-
-    const auto size = viewport();
-    emitResize(size.logicalWidth, size.logicalHeight);
+    // Some backends (notably hidden Wayland windows resized through GLFW)
+    // update logical dimensions without a window-size callback. Refresh them
+    // here so every framebuffer notification carries an authoritative snapshot.
+    glfwGetWindowSize(state_->window_, &state_->logicalWidth_, &state_->logicalHeight_);
+    emitResize(ResizeSource::Framebuffer);
 }
 
 void Window::windowSizeCallback(GLFWwindow* window, int width, int height) {
     if (auto* self = windowFrom(window)) {
-        self->emitResize(width, height);
+        self->state_->logicalWidth_ = width;
+        self->state_->logicalHeight_ = height;
+        self->emitResize(ResizeSource::Window);
     }
 }
 
@@ -352,10 +348,11 @@ void Window::charCallback(GLFWwindow* window, unsigned int codepoint) {
     }
 }
 
-void Window::emitResize(int logicalWidth, int logicalHeight) {
+void Window::emitResize(ResizeSource source) {
     emit(Event{WindowResizeEvent{
         .width = state_->width_, .height = state_->height_,
-        .logicalWidth = logicalWidth, .logicalHeight = logicalHeight
+        .logicalWidth = state_->logicalWidth_, .logicalHeight = state_->logicalHeight_,
+        .source = source
     }});
 }
 
@@ -363,10 +360,10 @@ void Window::emit(const Event& event) noexcept {
     auto* state = state_.get();
     try {
         state->input_.processEvent(event);
-        if (state->delivery_ != EventDelivery::Callback) state->events_.push_back(event);
+        if (state->delivery_ != EventDelivery::Callback) state->events_.push(event);
         if (state->delivery_ != EventDelivery::Queue) {
             const auto callback = state->eventCallback_;
-            if (callback) callback(event);
+            if (callback) (*callback)(event);
         }
     }
     catch (...) {

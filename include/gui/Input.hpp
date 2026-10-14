@@ -120,8 +120,8 @@ struct MousePosition {
 };
 
 // Persistent state fed by framework events. Pressed/released edges and scroll
-// offsets reset at beginFrame(), called by Window::pollEvents(). Both edges can
-// be true when a button changes state multiple times in one frame; down always
+// offsets and movement deltas reset at beginFrame(), called by Window::pollEvents().
+// Both edges can be true when a button changes state multiple times in one frame; down always
 // reflects its latest state.
 class Input {
 public:
@@ -135,6 +135,13 @@ public:
     double mouseX() const;
     double mouseY() const;
 
+    // Signed movement accumulated from all pointer samples this frame, in
+    // logical units. First sample (also after focus/cursor-boundary changes)
+    // seeds a baseline without a jump. Button/scroll position samples contribute.
+    MousePosition mouseDelta() const;
+    double mouseDeltaX() const;
+    double mouseDeltaY() const;
+
     // Scroll offset accumulated during the current frame.
     double scrollX() const;
     double scrollY() const;
@@ -147,6 +154,8 @@ public:
     bool isMouseButtonDown(MouseButton button) const;
     bool isMousePressed(MouseButton button) const;
     bool isMouseReleased(MouseButton button) const;
+    bool isMouseButtonPressed(MouseButton button) const;
+    bool isMouseButtonReleased(MouseButton button) const;
 
 private:
     struct ButtonState {
@@ -167,6 +176,9 @@ private:
     std::array<ButtonState, mouseButtonCount> mouseButtons_{};
     double mouseX_{0.0};
     double mouseY_{0.0};
+    double mouseDeltaX_{0.0};
+    double mouseDeltaY_{0.0};
+    bool mouseBaseline_{false};
     double scrollX_{0.0};
     double scrollY_{0.0};
 };
