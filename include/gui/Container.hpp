@@ -41,6 +41,7 @@ public:
     // Adjusts scrolling so rect (window coordinates) becomes visible. No-op by default.
     virtual void scrollIntoView(const Rect&) noexcept {}
     Size preferredSize() const noexcept override;
+    float heightForWidth(float width) const override;
     virtual void arrange();
     void draw(Renderer& renderer) const override;
 

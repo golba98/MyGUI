@@ -19,6 +19,7 @@
 #include <GLFW/glfw3.h>
 #include <GL/glcorearb.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
@@ -571,6 +572,33 @@ void testSelectionRendering(gui::Renderer& renderer, const TestGL& gl, const std
     expectNoGLError(gl, "selection rendering");
 }
 
+void testLineAlignment(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    const Target target{gl, 300, 80};
+    const auto viewport = makeViewport(300, 80, 300, 80);
+    gui::Label label{"WWWWWWWWWW\nW", font};
+    label.setBounds({0, 0, 300, 80});
+    const float line = font->measureText("", 16).lineHeight;
+    // Leftmost lit column in each line's row band.
+    const auto leftEdge = [&](int row) {
+        const auto pixels = target.pixels();
+        int left = 300;
+        for (int y = static_cast<int>(line * static_cast<float>(row)); y < static_cast<int>(line * static_cast<float>(row + 1)); ++y)
+            for (int x = 0; x < 300; ++x)
+                if (pixels[(static_cast<std::size_t>(79 - y) * 300 + static_cast<std::size_t>(x)) * 4] > 128) left = std::min(left, x);
+        return left;
+    };
+    for (const auto align : {gui::HorizontalAlign::Center, gui::HorizontalAlign::Right}) {
+        label.setAlignment(align, gui::VerticalAlign::Top);
+        renderer.beginFrame(viewport); renderer.clear({0, 0, 0, 1}); label.draw(renderer); renderer.endFrame();
+        const float wide = font->measureText("WWWWWWWWWW", 16).width, narrow = font->measureText("W", 16).width;
+        const float expected = align == gui::HorizontalAlign::Center ? (300 - narrow) / 2 : 300 - narrow;
+        check(leftEdge(0) >= static_cast<int>((align == gui::HorizontalAlign::Center ? (300 - wide) / 2 : 300 - wide)) - 2
+              && std::abs(static_cast<float>(leftEdge(1)) - expected) < 4,
+              align == gui::HorizontalAlign::Center ? "centered labels center each line" : "right-aligned labels align each line");
+    }
+    expectNoGLError(gl, "per-line alignment");
+}
+
 void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
     const Target target{gl, 640, 360};
     const auto viewport = makeViewport(640, 360, 640, 360);
@@ -650,6 +678,7 @@ int main() {
         testImages(renderer, gl, font);
         testScrollViewRendering(renderer, gl);
         testSelectionRendering(renderer, gl, font);
+        testLineAlignment(renderer, gl, font);
         testWidgetRendering(renderer, gl, font);
     }
     catch (const std::exception& error) {

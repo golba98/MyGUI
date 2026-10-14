@@ -132,6 +132,41 @@ std::vector<float> Font::caretOffsets(std::string_view text, float logicalSize) 
     shape(text, logicalSize, nullptr, &result);
     return result;
 }
+std::string Font::wrapText(std::string_view text, float logicalSize, float maxWidth) const {
+    if (!std::isfinite(logicalSize) || logicalSize <= 0 || logicalSize > 4096)
+        throw std::invalid_argument("Font size must be in (0, 4096]");
+    if (!std::isfinite(maxWidth) || maxWidth <= 0) return std::string{text};
+    const auto clean = sanitizeUtf8(text);
+    std::string result;
+    result.reserve(clean.size() + clean.size() / 16);
+    for (std::size_t start = 0;;) {
+        const auto end = std::min(clean.find('\n', start), clean.size());
+        const std::string_view paragraph{clean.data() + start, end - start};
+        const auto offsets = caretOffsets(paragraph, logicalSize);
+        std::vector<std::size_t> bytes{0};
+        for (std::size_t i = 0; i < paragraph.size();) bytes.push_back(i = nextUtf8Boundary(paragraph, i));
+        const auto count = bytes.size() - 1;
+        const auto blank = [&](std::size_t i) { return paragraph[bytes[i]] == ' ' || paragraph[bytes[i]] == '\t'; };
+        // Greedy fill. Blanks may overhang the edge; the first code point of a
+        // line always fits so every line makes progress.
+        std::size_t line = 0, space = 0;
+        bool haveSpace = false;
+        for (std::size_t i = 0; i < count;) {
+            if (blank(i)) { if (i > line) { space = i; haveSpace = true; } ++i; continue; }
+            if (i == line || offsets[i + 1] - offsets[line] <= maxWidth) { ++i; continue; }
+            std::size_t cut = haveSpace ? space : i, next = cut;
+            while (next < count && blank(next)) ++next;
+            while (cut > line && blank(cut - 1)) --cut;
+            result.append(paragraph.substr(bytes[line], bytes[cut] - bytes[line]));
+            result.push_back('\n');
+            i = line = next; haveSpace = false;
+        }
+        result.append(paragraph.substr(bytes[line]));
+        if (end == clean.size()) return result;
+        result.push_back('\n');
+        start = end + 1;
+    }
+}
 Font::Bitmap Font::rasterize(char32_t codepoint, unsigned int width, unsigned int height) const {
     if (!width || !height || width > 4096 || height > 4096) throw std::invalid_argument("Raster size must be in [1, 4096]");
     const auto face = impl_->face;

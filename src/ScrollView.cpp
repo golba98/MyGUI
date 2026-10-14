@@ -41,15 +41,23 @@ void ScrollView::scrollIntoView(const Rect& rect) noexcept {
 void ScrollView::arrange() {
     const auto area = contentBounds();
     const auto preferred = content_->preferredSize(), minimum = content_->minimumSize();
-    const Size wanted{std::max(preferred.width, minimum.width), std::max(preferred.height, minimum.height)};
+    // The content height depends on the width it gets, which depends on whether
+    // a vertical bar is shown.
+    const auto wantedAt = [&](float viewportWidth) {
+        const float width = horizontal_ ? std::max({viewportWidth, preferred.width, minimum.width}) : viewportWidth;
+        return Size{std::max(preferred.width, minimum.width), std::max(minimum.height, content_->heightForWidth(width))};
+    };
     // A bar on one axis shrinks the other axis and can make a second bar necessary.
     bool vertical = false, horizontal = false;
+    Size wanted = wantedAt(area.width);
     for (int pass = 0; pass < 2; ++pass) {
         const float width = area.width - (vertical ? scrollbarWidth : 0);
         const float height = area.height - (horizontal ? scrollbarWidth : 0);
+        wanted = wantedAt(nonnegative(width));
         vertical = wanted.height > height;
         horizontal = horizontal_ && wanted.width > width;
     }
+    wanted = wantedAt(nonnegative(area.width - (vertical ? scrollbarWidth : 0)));
     viewport_ = {area.x, area.y, nonnegative(area.width - (vertical ? scrollbarWidth : 0)),
                  nonnegative(area.height - (horizontal ? scrollbarWidth : 0))};
     contentSize_ = {horizontal_ ? std::max(viewport_.width, wanted.width) : viewport_.width,

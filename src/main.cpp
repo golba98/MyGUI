@@ -189,7 +189,9 @@ int main(int argc, char** argv) {
         content.setMinimumSize({220, 0}); content.setFlex(1);
         content.setBackgroundColor({0.11f, 0.13f, 0.18f, 1});
         auto& heading = content.emplace<gui::Label>("A foundation for interactive UI", font); heading.setFontSize(28);
-        auto& description = content.emplace<gui::Label>("Owned widgets, automatic layout, keyboard focus, and HiDPI text.", font); description.setFontSize(14);
+        auto& description = content.emplace<gui::Label>("Owned widgets, automatic layout, keyboard focus, HiDPI text, scrolling, "
+            "text entry and themes. This paragraph wraps to the window width; resize the window to see it reflow.", font);
+        description.setFontSize(14); description.setWrap(true);
         auto& gallery = content.emplace<Gallery>(font);
         auto& sliderRow = content.emplace<gui::Container>();
         sliderRow.setLayout(gui::Layout::Horizontal); sliderRow.setSpacing(16); sliderRow.setBackgroundColor({0, 0, 0, 0});

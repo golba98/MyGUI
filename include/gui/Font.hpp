@@ -33,6 +33,12 @@ public:
     // X offset of every code point boundary on a single line: one entry before
     // each decoded code point plus one at the end. Newlines restart at zero.
     std::vector<float> caretOffsets(std::string_view text, float logicalSize) const;
+    // Inserts line breaks so no line is wider than maxWidth where possible.
+    // Lines break at spaces or tabs, which are consumed; words longer than a
+    // line are split between code points. Explicit newlines are kept and
+    // invalid UTF-8 becomes U+FFFD. A nonpositive or nonfinite maxWidth
+    // returns the text unchanged.
+    std::string wrapText(std::string_view text, float logicalSize, float maxWidth) const;
 
 private:
     friend class Renderer;
