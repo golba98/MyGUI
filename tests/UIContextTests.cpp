@@ -4,11 +4,13 @@
 #include "gui/ProgressBar.hpp"
 #include "gui/ScrollView.hpp"
 #include "gui/Slider.hpp"
+#include "gui/TextField.hpp"
 #include "gui/UIContext.hpp"
 
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -27,6 +29,12 @@ void wheel(gui::UIContext& ui, double x, double y, double dy, double dx = 0) {
 }
 void key(gui::UIContext& ui, gui::Key key, gui::KeyAction action, bool shift = false) {
     ui.handleEvent(gui::Event{gui::KeyEvent{key, 0, action, {.shift = shift}}});
+}
+bool press(gui::UIContext& ui, gui::Key key, gui::Modifiers mods = {}) {
+    return ui.handleEvent(gui::Event{gui::KeyEvent{key, 0, gui::KeyAction::Press, mods}});
+}
+void type(gui::UIContext& ui, std::u32string_view text) {
+    for (const auto codepoint : text) ui.handleEvent(gui::Event{gui::TextInputEvent{codepoint}});
 }
 void testLayout() {
     gui::UIContext ui;
@@ -279,9 +287,56 @@ void testScrollView() {
           "horizontal scrolling uses the horizontal wheel");
     check(near(sideways.viewport().height, 100 - gui::ScrollView::scrollbarWidth), "a horizontal bar reserves its own gutter");
 }
+void testTextField() {
+    const auto font = gui::Font::load(MYGUI_TEST_FONT);
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    auto& field = ui.root().emplace<gui::TextField>(font); field.setBounds({10, 10, 200, 34});
+    std::vector<std::string> changes; std::string submitted;
+    field.setOnChange([&](const std::string& text) { changes.push_back(text); });
+    field.setOnSubmit([&](const std::string& text) { submitted = text; });
+    type(ui, U"ignored"); check(field.text().empty(), "unfocused fields ignore text input");
+    click(ui, 50, 20); check(field.focused(), "clicking focuses the field");
+    type(ui, U"caf\u00E9 \U0001F642");
+    check(field.text() == "caf\xC3\xA9 \xF0\x9F\x99\x82" && field.caret() == field.text().size(), "typing inserts UTF-8 at the caret");
+    check(changes.size() == 6 && changes.back() == field.text(), "each inserted character notifies");
+    key(ui, gui::Key::Backspace, gui::KeyAction::Press); check(field.text() == "caf\xC3\xA9 ", "Backspace removes a whole supplementary code point");
+    key(ui, gui::Key::Left, gui::KeyAction::Press); key(ui, gui::Key::Left, gui::KeyAction::Repeat);
+    check(field.caret() == 3, "Left moves by code points, including repeats");
+    key(ui, gui::Key::Delete, gui::KeyAction::Press); check(field.text() == "caf ", "Delete removes the two-byte code point after the caret");
+    key(ui, gui::Key::Home, gui::KeyAction::Press); type(ui, U">");
+    check(field.text() == ">caf " && field.caret() == 1, "Home moves to the start before inserting");
+    key(ui, gui::Key::End, gui::KeyAction::Press); check(field.caret() == field.text().size(), "End moves to the end");
+    const auto count = changes.size();
+    key(ui, gui::Key::Backspace, gui::KeyAction::Release); key(ui, gui::Key::Home, gui::KeyAction::Press);
+    key(ui, gui::Key::Backspace, gui::KeyAction::Press); key(ui, gui::Key::Left, gui::KeyAction::Press);
+    check(changes.size() == count && field.caret() == 0, "navigation and no-op deletion do not notify");
+    type(ui, U"\n\t\u0007\u007F"); check(field.text() == ">caf ", "control characters are not inserted");
+    key(ui, gui::Key::Enter, gui::KeyAction::Press); key(ui, gui::Key::Enter, gui::KeyAction::Repeat);
+    check(submitted == ">caf ", "Enter submits the text");
+    check(press(ui, gui::Key::V), "unmodified keys are consumed so app shortcuts do not fire");
+    check(!press(ui, gui::Key::Escape) && !press(ui, gui::Key::PageDown) && !press(ui, gui::Key::Q, {.control = true}),
+          "Escape, paging and modifier shortcuts still bubble");
+
+    field.setText("ab\ncd\xFF"); check(field.text() == "abcd\xEF\xBF\xBD" && field.caret() == field.text().size(),
+                                          "setText cleans the line and moves the caret to the end");
+    check(changes.size() == count, "setText never notifies");
+    field.setCaret(5); check(field.caret() == 4, "setCaret snaps back to a code point boundary");
+    field.setCaret(99); check(field.caret() == field.text().size(), "setCaret clamps to the text");
+    field.setText("iiii WWWW");
+    const auto offsets = font->caretOffsets("iiii WWWW", 16);
+    click(ui, 10 + 8 + offsets[5] + 1, 20); check(field.caret() == 5, "clicks place the caret at the nearest boundary");
+    click(ui, 300, 20); check(field.caret() == 5, "clicks outside the field leave the caret");
+    click(ui, 15, 20); check(field.caret() == 0, "clicks before the text place the caret at the start");
+
+    auto& narrow = ui.root().emplace<gui::TextField>(font); narrow.setBounds({10, 100, 60, 34});
+    ui.requestFocus(&narrow); type(ui, U"a long line of text that overflows");
+    click(ui, 10 + 8 + 44 - 1, 110);
+    check(narrow.caret() == narrow.text().size(), "after scrolling, a click near the right edge maps through the scroll offset");
+    narrow.setEnabled(false); type(ui, U"x"); check(narrow.text().back() == 's', "disabled fields ignore input");
+}
 }
 int main() {
-    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); testScrollView(); }
+    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); testScrollView(); testTextField(); }
     catch (const std::exception& error) { std::fprintf(stderr, "Error: %s\n", error.what()); return 1; }
     return failures ? 1 : 0;
 }

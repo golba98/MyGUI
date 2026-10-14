@@ -4,6 +4,7 @@
 #include "gui/ProgressBar.hpp"
 #include "gui/ScrollView.hpp"
 #include "gui/Slider.hpp"
+#include "gui/TextField.hpp"
 #include "gui/Renderer.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Window.hpp"
@@ -195,13 +196,22 @@ int main(int argc, char** argv) {
         sliderLabel.setAlignment(gui::HorizontalAlign::Left, gui::VerticalAlign::Center);
         auto& slider = sliderRow.emplace<gui::Slider>(0.0f, 100.0f, 40.0f); slider.setStep(1); slider.setFlex(1);
         auto& progress = content.emplace<gui::ProgressBar>(0.4f);
+        auto& noteRow = content.emplace<gui::Container>();
+        noteRow.setLayout(gui::Layout::Horizontal); noteRow.setSpacing(12); noteRow.setBackgroundColor({0, 0, 0, 0});
+        auto& note = noteRow.emplace<gui::TextField>(font); note.setPlaceholder("Type a note and press Enter"); note.setFlex(1);
+        auto& submit = noteRow.emplace<gui::Button>("Submit", font);
         auto& status = content.emplace<gui::Label>("Clicks: 0 · Overlay visible", font); status.setFontSize(15);
         auto& inputStatus = content.emplace<gui::Label>("", font); inputStatus.setFontSize(12);
         auto& lastTransition = content.emplace<gui::Label>("Last input: none", font); lastTransition.setFontSize(12);
         int clicks = 0;
+        std::string lastNote;
         const auto updateStatus = [&] {
-            status.setText("Clicks: " + std::to_string(clicks) + (gallery.overlay().visible() ? " · Overlay visible" : " · Overlay hidden"));
+            status.setText("Clicks: " + std::to_string(clicks) + (gallery.overlay().visible() ? " · Overlay visible" : " · Overlay hidden")
+                           + (lastNote.empty() ? "" : " · Note: " + lastNote));
         };
+        const auto submitNote = [&] { lastNote = note.text(); note.setText(""); updateStatus(); };
+        note.setOnSubmit([&](const std::string&) { submitNote(); });
+        submit.setOnClick(submitNote);
         const auto setOverlay = [&](bool visible) {
             gallery.overlay().setVisible(visible); overlayBox.setChecked(visible); updateStatus();
         };

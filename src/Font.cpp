@@ -32,6 +32,36 @@ std::u32string decodeUtf8(std::string_view text) {
     }
     return result;
 }
+void appendUtf8(std::string& out, char32_t codepoint) {
+    if (codepoint > 0x10FFFF || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) codepoint = 0xFFFD;
+    const auto byte = [&out](char32_t value) { out.push_back(static_cast<char>(value)); };
+    if (codepoint < 0x80) byte(codepoint);
+    else if (codepoint < 0x800) { byte(0xC0 | (codepoint >> 6)); byte(0x80 | (codepoint & 0x3F)); }
+    else if (codepoint < 0x10000) {
+        byte(0xE0 | (codepoint >> 12)); byte(0x80 | ((codepoint >> 6) & 0x3F)); byte(0x80 | (codepoint & 0x3F));
+    }
+    else {
+        byte(0xF0 | (codepoint >> 18)); byte(0x80 | ((codepoint >> 12) & 0x3F));
+        byte(0x80 | ((codepoint >> 6) & 0x3F)); byte(0x80 | (codepoint & 0x3F));
+    }
+}
+std::string sanitizeUtf8(std::string_view text) {
+    std::string result;
+    result.reserve(text.size());
+    for (const auto codepoint : decodeUtf8(text)) appendUtf8(result, codepoint);
+    return result;
+}
+std::size_t nextUtf8Boundary(std::string_view text, std::size_t offset) noexcept {
+    if (offset >= text.size()) return text.size();
+    do ++offset; while (offset < text.size() && (static_cast<unsigned char>(text[offset]) & 0xC0) == 0x80);
+    return offset;
+}
+std::size_t previousUtf8Boundary(std::string_view text, std::size_t offset) noexcept {
+    if (offset == 0) return 0;
+    offset = std::min(offset, text.size());
+    do --offset; while (offset > 0 && (static_cast<unsigned char>(text[offset]) & 0xC0) == 0x80);
+    return offset;
+}
 struct Font::Impl {
     FT_Library library{nullptr};
     FT_Face face{nullptr};
@@ -54,7 +84,8 @@ Font::Font(const std::string& filename) : impl_{std::make_unique<Impl>()} {
 }
 Font::~Font() = default;
 std::shared_ptr<Font> Font::load(const std::string& filename) { return std::shared_ptr<Font>(new Font(filename)); }
-TextMetrics Font::shape(std::string_view text, float size, std::vector<PositionedGlyph>* glyphs) const {
+TextMetrics Font::shape(std::string_view text, float size, std::vector<PositionedGlyph>* glyphs,
+                        std::vector<float>* boundaries) const {
     if (!std::isfinite(size) || size <= 0 || size > 4096) throw std::invalid_argument("Font size must be in (0, 4096]");
     const auto face = impl_->face;
     const float scale = size / static_cast<float>(face->units_per_EM);
@@ -81,6 +112,7 @@ TextMetrics Font::shape(std::string_view text, float size, std::vector<Positione
     const auto codepoints = decodeUtf8(text);
     std::size_t lines = codepoints.empty() ? 0 : 1;
     for (const auto codepoint : codepoints) {
+        if (boundaries) boundaries->push_back(x);
         if (codepoint == U'\r') continue;
         if (codepoint == U'\n') {
             metrics.width = std::max(metrics.width, x);
@@ -89,11 +121,17 @@ TextMetrics Font::shape(std::string_view text, float size, std::vector<Positione
         else if (codepoint == U'\t') { for (int i = 0; i < 4; ++i) append(U' '); }
         else append(codepoint);
     }
+    if (boundaries) boundaries->push_back(x);
     metrics.width = std::max(metrics.width, x);
     metrics.height = static_cast<float>(lines) * metrics.lineHeight;
     return metrics;
 }
 TextMetrics Font::measureText(std::string_view text, float logicalSize) const { return shape(text, logicalSize, nullptr); }
+std::vector<float> Font::caretOffsets(std::string_view text, float logicalSize) const {
+    std::vector<float> result;
+    shape(text, logicalSize, nullptr, &result);
+    return result;
+}
 Font::Bitmap Font::rasterize(char32_t codepoint, unsigned int width, unsigned int height) const {
     if (!width || !height || width > 4096 || height > 4096) throw std::invalid_argument("Raster size must be in [1, 4096]");
     const auto face = impl_->face;

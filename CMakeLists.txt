@@ -22,6 +22,7 @@ add_library(MyGUI_core STATIC
     src/Widget.cpp src/Panel.cpp src/Container.cpp src/UIContext.cpp
     src/Font.cpp src/Label.cpp src/Button.cpp src/Image.cpp src/ImageView.cpp
     src/Checkbox.cpp src/Slider.cpp src/ProgressBar.cpp src/ScrollView.cpp
+    src/TextField.cpp
     src/gl/Functions.cpp
 )
 target_include_directories(MyGUI_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

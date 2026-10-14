@@ -149,6 +149,12 @@ Buttons activate on a matching left-button release inside the visible hit area, 
 - `gui::Slider` has a finite range, an optional step (`0` is continuous), and `setOnChange` for user changes. Pressing captures the pointer, so dragging keeps tracking the cursor outside the widget until release. Arrow keys step (repeats included; continuous sliders step by 1% of the range), PageUp/PageDown move ten steps, and Home/End jump to the ends. `setValue` clamps, snaps and ignores NaN without notifying.
 - `gui::ProgressBar` shows a value clamped to `[0, 1]` and takes no input.
 
+## Text entry
+
+`gui::TextField` edits a single line of UTF-8. Typing arrives as `TextInputEvent`s, so keyboard layouts and dead keys work as the platform delivers them; control characters are never inserted and `setText` strips newlines and replaces invalid UTF-8 with U+FFFD. The caret is a byte offset that always sits on a code point boundary: Left/Right move by code point, Home/End jump to the ends, Backspace/Delete remove one code point, and a click places the caret at the nearest boundary. Long text scrolls horizontally to keep the caret visible. `setOnChange` runs after every user edit (never for `setText`), and `setOnSubmit` runs when Enter is pressed. While focused, the field consumes key events without Ctrl/Alt/Super so typing cannot trigger application shortcuts; Escape, Up, Down, PageUp and PageDown still bubble. The caret does not blink.
+
+`Font::caretOffsets` returns the x offset of every code point boundary, and `appendUtf8`, `sanitizeUtf8`, `nextUtf8Boundary` and `previousUtf8Boundary` are available for custom text widgets.
+
 ## Scrolling
 
 `gui::ScrollView` scrolls a single `content()` container (vertical layout by default); add children to the content, not to the view. The content receives at least the viewport size and grows to its preferred size. Vertical scrolling is always available; `setHorizontalScrolling(true)` enables the horizontal axis. Scrollbars appear only when needed and occupy a gutter that content never covers, for drawing or hit-testing.
@@ -163,4 +169,4 @@ Fonts are loaded through FreeType. Sizes are logical pixels in `(0, 4096]`, with
 
 Glyph coverage textures are cached per renderer, font, and raster size. Atlas pages remain fixed while queued commands reference them. The cache lasts for the renderer's lifetime; applications displaying many different font sizes should bound their font-size choices.
 
-This version does not include text editing, scrolling controls, automatic line wrapping, complex-script shaping, bidirectional layout, color emoji, or native accessibility integration. Labels and buttons clip text that exceeds their bounds. The bundled Noto Sans font's pinned source and SIL Open Font License are in `assets/fonts/SOURCE.md` and `assets/fonts/OFL.txt`.
+This version does not include multi-line text editing, automatic line wrapping, complex-script shaping, bidirectional layout, color emoji, or native accessibility integration. Labels and buttons clip text that exceeds their bounds. The bundled Noto Sans font's pinned source and SIL Open Font License are in `assets/fonts/SOURCE.md` and `assets/fonts/OFL.txt`.

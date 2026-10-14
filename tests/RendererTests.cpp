@@ -8,6 +8,7 @@
 #include "gui/ProgressBar.hpp"
 #include "gui/ScrollView.hpp"
 #include "gui/Slider.hpp"
+#include "gui/TextField.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Font.hpp"
 #include "gui/Image.hpp"
@@ -562,10 +563,13 @@ void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::s
     auto& normal = row.emplace<gui::Button>("Click me", font);
     auto& disabled = row.emplace<gui::Button>("Disabled", font); disabled.setEnabled(false);
     auto& controls = root.emplace<gui::Container>(); controls.setLayout(gui::Layout::Horizontal); controls.setSpacing(16); controls.setBackgroundColor({0, 0, 0, 0});
-    auto& check = controls.emplace<gui::Checkbox>("Checked", font, true);
+    auto& box = controls.emplace<gui::Checkbox>("Checked", font, true);
     controls.emplace<gui::Switch>("Switch", font, true);
     auto& slider = controls.emplace<gui::Slider>(0.0f, 10.0f, 7.0f); slider.setFlex(1);
     auto& progress = root.emplace<gui::ProgressBar>(0.25f);
+    auto& fields = root.emplace<gui::Container>(); fields.setLayout(gui::Layout::Horizontal); fields.setSpacing(16); fields.setBackgroundColor({0, 0, 0, 0});
+    auto& field = fields.emplace<gui::TextField>(font, "Editable text"); field.setFlex(1);
+    auto& empty = fields.emplace<gui::TextField>(font); empty.setPlaceholder("Placeholder"); empty.setFlex(1);
     ui.layout(viewport); ui.requestFocus(&normal);
     renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
     expectPixel(target, static_cast<int>(disabled.bounds().x + 3), static_cast<int>(disabled.bounds().y + 3), disabled.style().disabled, "disabled button uses its style");
@@ -574,11 +578,24 @@ void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::s
     const auto& pb = progress.bounds();
     expectPixel(target, static_cast<int>(pb.x + pb.width * 0.2f), static_cast<int>(pb.y + pb.height / 2), theme.fill, "progress fill covers its value");
     expectPixel(target, static_cast<int>(pb.x + pb.width * 0.6f), static_cast<int>(pb.y + pb.height / 2), theme.track, "progress track covers the remainder");
-    const auto& cb = check.bounds();
+    const auto& cb = box.bounds();
     expectPixel(target, static_cast<int>(cb.x + 5), static_cast<int>(cb.y + cb.height / 2 - 5), theme.fill, "checked box is filled");
     const auto& sb = slider.bounds();
     expectPixel(target, static_cast<int>(sb.x + 12), static_cast<int>(sb.y + sb.height / 2), theme.fill, "slider fill starts at the left");
     expectPixel(target, static_cast<int>(sb.x + sb.width - 10), static_cast<int>(sb.y + sb.height / 2), theme.track, "slider track continues to the right");
+    const auto textInk = [&](const gui::Rect& area, float threshold) {
+        const auto pixels = target.pixels();
+        int count = 0;
+        for (int y = static_cast<int>(area.y); y < static_cast<int>(area.y + area.height); ++y)
+            for (int x = static_cast<int>(area.x + 8); x < static_cast<int>(area.x + area.width - 8); ++x) {
+                const auto* px = pixels.data() + (static_cast<std::size_t>(359 - y) * 640 + static_cast<std::size_t>(x)) * 4;
+                count += px[0] > threshold * 255;
+            }
+        return count;
+    };
+    // Muted placeholder ink stays below 0.7; regular text exceeds it.
+    check(textInk(field.bounds(), 0.7f) > 50, "text fields draw their text");
+    check(textInk(empty.bounds(), 0.5f) > 50 && textInk(empty.bounds(), 0.7f) < 5, "empty fields draw a muted placeholder");
     expectNoGLError(gl, "widget tree rendering");
     if (const auto* filename = std::getenv("MYGUI_RENDER_SNAPSHOT")) {
         std::ofstream stream(filename, std::ios::binary);
