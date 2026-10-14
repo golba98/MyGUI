@@ -444,6 +444,23 @@ void testMoveAndExceptions(gui::Window& original, GLFWwindow* native, const Call
     check(true, "deferred exception is reported only once");
 }
 
+void testClipboard(gui::Window& window) {
+    auto& clipboard = window.clipboard();
+#if GLFW_VERSION_MAJOR > 3 || (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
+    // Wayland only lets a window that received input own the clipboard.
+    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+        std::printf("SKIP system clipboard round-trip needs input focus on Wayland\n");
+        return;
+    }
+#endif
+    const std::string text = "MyGUI clipboard caf\xC3\xA9 \xF0\x9F\x99\x82";
+    clipboard.setText(text);
+    check(clipboard.text() == text, "system clipboard round-trips UTF-8 text");
+    gui::Window moved = std::move(window);
+    check(&moved.clipboard() == &clipboard && clipboard.text() == text, "the clipboard moves with its window");
+    window = std::move(moved);
+}
+
 } // namespace
 
 int main() {
@@ -470,6 +487,8 @@ int main() {
         testDeliveryModes(window, native, callbacks);
         testCallbackStorage(window, native, callbacks);
         testWindowLifetime(window, native, callbacks);
+        testClipboard(window);
+        // Leaves window moved-from; keep it last.
         testMoveAndExceptions(window, native, callbacks);
     }
     catch (const std::exception& error) {

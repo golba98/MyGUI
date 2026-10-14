@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gui/Clipboard.hpp"
 #include "gui/Container.hpp"
 #include "gui/Event.hpp"
 #include "gui/Theme.hpp"
@@ -21,6 +22,10 @@ public:
     // Widgets read the theme while drawing, so changes apply to the next frame.
     void setTheme(const Theme& theme) noexcept { theme_ = theme; dirty_ = true; }
     const Theme& theme() const noexcept { return theme_; }
+    // Non-owning; the clipboard must outlive its use here. nullptr disables
+    // copy and paste in text widgets.
+    void setClipboard(Clipboard* clipboard) noexcept { clipboard_ = clipboard; }
+    Clipboard* clipboard() const noexcept { return clipboard_; }
     void layout(const Viewport& viewport);
     void draw(Renderer& renderer);
     bool handleEvent(const Event& event);
@@ -47,6 +52,7 @@ private:
     void focusOrder(Widget& widget, std::vector<Widget*>& order);
     std::unique_ptr<Container> root_;
     Theme theme_{};
+    Clipboard* clipboard_{nullptr};
     Viewport viewport_{};
     Widget* hovered_{nullptr};
     Widget* focused_{nullptr};

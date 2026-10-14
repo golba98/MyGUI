@@ -552,6 +552,25 @@ void testScrollViewRendering(gui::Renderer& renderer, const TestGL& gl) {
     expectNoGLError(gl, "scroll view rendering");
 }
 
+void testSelectionRendering(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    const Target target{gl, 200, 60};
+    const auto viewport = makeViewport(200, 60, 200, 60);
+    gui::UIContext ui;
+    auto& field = ui.root().emplace<gui::TextField>(font, "WWWWWW"); field.setBounds({0, 0, 200, 40});
+    ui.layout(viewport); ui.requestFocus(&field); field.setSelection(0, 3);
+    renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
+    const gui::Theme theme;
+    const auto blend = [](float s, float d, float a) { return s * a + d * (1 - a); };
+    const gui::Color highlighted{blend(theme.selection.r, theme.track.r, theme.selection.a),
+                                 blend(theme.selection.g, theme.track.g, theme.selection.a),
+                                 blend(theme.selection.b, theme.track.b, theme.selection.a), 1};
+    // Sample the top of the line box, above the glyphs.
+    const int top = static_cast<int>((40 - font->measureText("", 16).lineHeight) / 2) + 1;
+    expectPixel(target, 9, top, highlighted, "the selection is highlighted behind the text");
+    expectPixel(target, 190, top, theme.track, "unselected text is not highlighted");
+    expectNoGLError(gl, "selection rendering");
+}
+
 void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
     const Target target{gl, 640, 360};
     const auto viewport = makeViewport(640, 360, 640, 360);
@@ -630,6 +649,7 @@ int main() {
         testShapes(renderer, gl);
         testImages(renderer, gl, font);
         testScrollViewRendering(renderer, gl);
+        testSelectionRendering(renderer, gl, font);
         testWidgetRendering(renderer, gl, font);
     }
     catch (const std::exception& error) {

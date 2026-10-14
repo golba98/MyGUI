@@ -20,6 +20,7 @@ struct Theme {
     Color disabled{0.22f, 0.24f, 0.28f, 1};
     Color disabledText{0.48f, 0.50f, 0.54f, 1};
     Color focus{0.60f, 0.80f, 1.0f, 1};
+    Color selection{0.36f, 0.62f, 0.95f, 0.38f};
     float cornerRadius{6};
     float focusWidth{2};
 };

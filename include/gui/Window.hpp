@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gui/Clipboard.hpp"
 #include "gui/Event.hpp"
 #include "gui/Renderer.hpp"
 #include "gui/Viewport.hpp"
@@ -65,6 +66,10 @@ public:
 
     // Polled keyboard and mouse state. Refreshed by each pollEvents() call.
     const Input& input() const;
+
+    // System clipboard, valid for the lifetime of this window (moves with it).
+    // Main thread only.
+    Clipboard& clipboard();
 
 private:
     // GLFW is a C library and cannot call member functions directly, so these

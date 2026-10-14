@@ -60,10 +60,26 @@ Modifiers toModifiers(int mods) {
     };
 }
 
+class SystemClipboard final : public Clipboard {
+public:
+    explicit SystemClipboard(GLFWwindow*& window) : window_{window} {}
+    std::string text() const override {
+        const char* text = window_ ? glfwGetClipboardString(window_) : nullptr;
+        return text ? text : "";
+    }
+    void setText(std::string_view text) override {
+        if (window_) glfwSetClipboardString(window_, std::string{text}.c_str());
+    }
+
+private:
+    GLFWwindow*& window_;
+};
+
 } // namespace
 
 struct Window::State {
     GLFWwindow* window_{nullptr};
+    SystemClipboard clipboard_{window_};
     int width_{0}, height_{0};
     int logicalWidth_{0}, logicalHeight_{0};
     std::shared_ptr<EventCallback> eventCallback_;
@@ -229,6 +245,10 @@ void Window::setEventCallback(EventCallback callback) {
 
 const Input& Window::input() const {
     return state_->input_;
+}
+
+Clipboard& Window::clipboard() {
+    return state_->clipboard_;
 }
 
 void Window::setEventDelivery(EventDelivery delivery) {

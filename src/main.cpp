@@ -162,6 +162,7 @@ int main(int argc, char** argv) {
         // GPU resources are released before the window destroys its context.
         gui::Renderer renderer{window.glProcLoader()};
         gui::UIContext ui;
+        ui.setClipboard(&window.clipboard());
         auto& root = ui.root();
         root.setLayout(gui::Layout::Horizontal); root.setPadding({24, 24, 24, 24}); root.setSpacing(20);
         root.setBackgroundColor({0.07f, 0.08f, 0.11f, 1});

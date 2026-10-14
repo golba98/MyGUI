@@ -334,9 +334,64 @@ void testTextField() {
     check(narrow.caret() == narrow.text().size(), "after scrolling, a click near the right edge maps through the scroll offset");
     narrow.setEnabled(false); type(ui, U"x"); check(narrow.text().back() == 's', "disabled fields ignore input");
 }
+struct FakeClipboard : gui::Clipboard {
+    std::string contents;
+    std::string text() const override { return contents; }
+    void setText(std::string_view text) override { contents = text; }
+};
+void testTextSelection() {
+    const auto font = gui::Font::load(MYGUI_TEST_FONT);
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    FakeClipboard clipboard;
+    auto& field = ui.root().emplace<gui::TextField>(font, "hello brave new world"); field.setBounds({10, 10, 300, 34});
+    int changes = 0; field.setOnChange([&](const std::string&) { ++changes; });
+    ui.requestFocus(&field);
+    const gui::Modifiers shift{.shift = true}, ctrl{.control = true}, ctrlShift{.shift = true, .control = true};
+    press(ui, gui::Key::Left, shift); press(ui, gui::Key::Left, shift);
+    check(field.selectedText() == "ld" && field.caret() == 19, "Shift+Left extends the selection from the anchor");
+    press(ui, gui::Key::Left); check(!field.hasSelection() && field.caret() == 19, "Left collapses a selection to its start");
+    press(ui, gui::Key::Left, ctrl); check(field.caret() == 16, "Ctrl+Left moves to the start of the word");
+    press(ui, gui::Key::Left, ctrl); check(field.caret() == 12, "Ctrl+Left skips spaces to the previous word");
+    press(ui, gui::Key::Right, ctrlShift); check(field.selectedText() == "new", "Ctrl+Shift+Right selects to the word end");
+    press(ui, gui::Key::Right); check(field.caret() == 15 && !field.hasSelection(), "Right collapses a selection to its end");
+    press(ui, gui::Key::Home, shift); check(field.selectedText() == "hello brave new", "Shift+Home selects to the start");
+    type(ui, U"X"); check(field.text() == "X world" && field.caret() == 1 && changes == 1, "typing replaces the selection with one change");
+    press(ui, gui::Key::End, shift); press(ui, gui::Key::Backspace); check(field.text() == "X", "Backspace deletes the selection");
+
+    field.setText("one two three");
+    press(ui, gui::Key::Backspace, ctrl); check(field.text() == "one two ", "Ctrl+Backspace deletes the previous word");
+    press(ui, gui::Key::Home); press(ui, gui::Key::Delete, ctrl); check(field.text() == " two ", "Ctrl+Delete deletes to the next word end");
+
+    field.setText("copy me"); press(ui, gui::Key::A, ctrl);
+    check(field.selectedText() == "copy me", "Ctrl+A selects all");
+    check(press(ui, gui::Key::C, ctrl) && clipboard.contents.empty(), "copy without a clipboard is a consumed no-op");
+    ui.setClipboard(&clipboard);
+    press(ui, gui::Key::C, ctrl); check(clipboard.contents == "copy me" && field.text() == "copy me", "Ctrl+C copies the selection");
+    field.setSelection(0, 5); press(ui, gui::Key::X, {.super = true});
+    check(clipboard.contents == "copy " && field.text() == "me", "Super+X cuts the selection");
+    clipboard.contents = "multi\nline\ttext\xFF";
+    press(ui, gui::Key::End); press(ui, gui::Key::V, ctrl);
+    check(field.text() == "memultilinetext\xEF\xBF\xBD", "paste strips control characters and repairs UTF-8");
+    field.selectAll(); clipboard.contents.clear(); press(ui, gui::Key::V, ctrl);
+    check(field.text().empty(), "pasting empty text over a selection deletes it");
+    changes = 0; press(ui, gui::Key::V, ctrl); check(changes == 0, "pasting nothing without a selection is a no-op");
+    check(!press(ui, gui::Key::S, ctrl), "unhandled shortcuts still bubble");
+
+    field.setText("iiii WWWW");
+    const auto offsets = font->caretOffsets("iiii WWWW", 16);
+    const auto xAt = [&](std::size_t index) { return 10 + 8 + offsets[index]; };
+    mouse(ui, xAt(1) + 1, 20, gui::ButtonAction::Press);
+    check(field.dragging() && ui.capturedWidget() == &field, "pressing in the field captures the pointer");
+    move(ui, xAt(7) + 1, 150); check(field.selection() == std::make_pair<std::size_t, std::size_t>(1, 7), "dragging selects, even below the field");
+    mouse(ui, xAt(7) + 1, 150, gui::ButtonAction::Release); check(!field.dragging() && !ui.capturedWidget(), "release ends the drag");
+    ui.handleEvent(gui::Event{gui::MouseButtonEvent{gui::MouseButton::Left, gui::ButtonAction::Press, xAt(9) + 1, 20, {.shift = true}}});
+    check(field.selection() == std::make_pair<std::size_t, std::size_t>(1, 9), "Shift+click extends from the anchor");
+    mouse(ui, xAt(9) + 1, 20, gui::ButtonAction::Release);
+    field.setCaret(3); check(!field.hasSelection() && field.caret() == 3, "setCaret clears the selection");
+}
 }
 int main() {
-    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); testScrollView(); testTextField(); }
+    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); testScrollView(); testTextField(); testTextSelection(); }
     catch (const std::exception& error) { std::fprintf(stderr, "Error: %s\n", error.what()); return 1; }
     return failures ? 1 : 0;
 }
