@@ -25,6 +25,8 @@ public:
     void draw(Renderer& renderer);
     bool handleEvent(const Event& event);
     bool requestFocus(Widget* widget) noexcept;
+    // Scrolls every enclosing view so the widget is visible. Tab traversal calls this.
+    void reveal(Widget& widget);
     bool capturePointer(Widget& widget) noexcept;
     void releasePointer(Widget& widget) noexcept;
     Widget* focusedWidget() const noexcept { return focused_; }

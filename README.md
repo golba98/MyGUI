@@ -149,6 +149,12 @@ Buttons activate on a matching left-button release inside the visible hit area, 
 - `gui::Slider` has a finite range, an optional step (`0` is continuous), and `setOnChange` for user changes. Pressing captures the pointer, so dragging keeps tracking the cursor outside the widget until release. Arrow keys step (repeats included; continuous sliders step by 1% of the range), PageUp/PageDown move ten steps, and Home/End jump to the ends. `setValue` clamps, snaps and ignores NaN without notifying.
 - `gui::ProgressBar` shows a value clamped to `[0, 1]` and takes no input.
 
+## Scrolling
+
+`gui::ScrollView` scrolls a single `content()` container (vertical layout by default); add children to the content, not to the view. The content receives at least the viewport size and grows to its preferred size. Vertical scrolling is always available; `setHorizontalScrolling(true)` enables the horizontal axis. Scrollbars appear only when needed and occupy a gutter that content never covers, for drawing or hit-testing.
+
+The wheel scrolls the innermost view under the cursor that can still move in that direction, then bubbles to outer views. Dragging a thumb captures the pointer; clicking the track pages. PageUp/PageDown bubbling unhandled from a focused descendant scroll by one viewport. Tab traversal calls `UIContext::reveal`, which scrolls every enclosing view so the newly focused widget is visible; call it yourself after programmatic focus changes. `setScrollOffset` clamps against the latest layout. Custom containers can implement the virtual `childClip()` and `scrollIntoView()` hooks.
+
 `gui::Theme` holds the palette, corner radius and focus-ring width the built-in widgets read while drawing. Set it with `ui.setTheme(theme)`; detached widgets use the default theme. Buttons derive their colors from the theme unless `setStyle(ButtonStyle)` overrides them; `resetStyle()` returns to the theme.
 
 ## Text support and current limits

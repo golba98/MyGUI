@@ -6,6 +6,7 @@
 #include "gui/Button.hpp"
 #include "gui/Checkbox.hpp"
 #include "gui/ProgressBar.hpp"
+#include "gui/ScrollView.hpp"
 #include "gui/Slider.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Font.hpp"
@@ -533,6 +534,23 @@ void testImages(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr
     expectNoGLError(gl, "image drawing");
 }
 
+void testScrollViewRendering(gui::Renderer& renderer, const TestGL& gl) {
+    const Target target{gl, 200, 150};
+    const auto viewport = makeViewport(200, 150, 200, 150);
+    gui::UIContext ui;
+    ui.root().setBackgroundColor(background);
+    auto& view = ui.root().emplace<gui::ScrollView>(); view.setBounds({0, 0, 100, 100});
+    auto& top = view.content().emplace<gui::Panel>(); top.setPreferredSize({0, 50}); top.setBackgroundColor(green);
+    auto& rest = view.content().emplace<gui::Panel>(); rest.setPreferredSize({0, 250}); rest.setBackgroundColor(red);
+    ui.layout(viewport); view.setScrollOffset({0, 40}); ui.layout(viewport);
+    renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
+    expectPixel(target, 10, 5, green, "scrolled content starts at its offset");
+    expectPixel(target, 10, 20, red, "later content follows");
+    expectPixel(target, 10, 110, background, "content is clipped to the viewport");
+    expectPixel(target, 95, 20, gui::Theme{}.border, "the thumb is drawn in the gutter");
+    expectNoGLError(gl, "scroll view rendering");
+}
+
 void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
     const Target target{gl, 640, 360};
     const auto viewport = makeViewport(640, 360, 640, 360);
@@ -594,6 +612,7 @@ int main() {
         testAtlasGrowth(renderer, gl, font);
         testShapes(renderer, gl);
         testImages(renderer, gl, font);
+        testScrollViewRendering(renderer, gl);
         testWidgetRendering(renderer, gl, font);
     }
     catch (const std::exception& error) {

@@ -2,6 +2,7 @@
 #include "gui/Checkbox.hpp"
 #include "gui/ImageView.hpp"
 #include "gui/ProgressBar.hpp"
+#include "gui/ScrollView.hpp"
 #include "gui/Slider.hpp"
 #include "gui/Renderer.hpp"
 #include "gui/UIContext.hpp"
@@ -164,10 +165,11 @@ int main(int argc, char** argv) {
         root.setLayout(gui::Layout::Horizontal); root.setPadding({24, 24, 24, 24}); root.setSpacing(20);
         root.setBackgroundColor({0.07f, 0.08f, 0.11f, 1});
 
-        auto& sidebar = root.emplace<gui::Container>();
-        sidebar.setLayout(gui::Layout::Vertical); sidebar.setPadding({20, 20, 20, 20}); sidebar.setSpacing(14);
-        sidebar.setPreferredSize({240, 0}); sidebar.setMinimumSize({180, 0});
-        sidebar.setBackgroundColor({0.13f, 0.16f, 0.21f, 1});
+        auto& sidebarView = root.emplace<gui::ScrollView>();
+        sidebarView.setPreferredSize({240, 0}); sidebarView.setMinimumSize({180, 0});
+        sidebarView.setBackgroundColor({0.13f, 0.16f, 0.21f, 1});
+        auto& sidebar = sidebarView.content();
+        sidebar.setPadding({20, 20, 20, 20}); sidebar.setSpacing(14);
         auto& brand = sidebar.emplace<gui::Label>("MyGUI", font); brand.setFontSize(26);
         auto& subtitle = sidebar.emplace<gui::Label>("C++20 · OpenGL 3.3", font); subtitle.setFontSize(13);
         auto& toggle = sidebar.emplace<gui::Button>("Toggle overlay", font);
@@ -175,8 +177,10 @@ int main(int argc, char** argv) {
         auto& disabled = sidebar.emplace<gui::Button>("Disabled button", font); disabled.setEnabled(false);
         auto& overlayBox = sidebar.emplace<gui::Checkbox>("Show overlay", font, true);
         auto& warmTheme = sidebar.emplace<gui::Switch>("Warm accent", font);
-        auto& spacer = sidebar.emplace<gui::Panel>(); spacer.setFlex(1); spacer.setBackgroundColor(sidebar.backgroundColor());
-        auto& instructions = sidebar.emplace<gui::Label>("Tab / Shift+Tab: focus\nEnter / Space: activate\nArrows: adjust slider\nV: toggle overlay", font); instructions.setFontSize(12);
+        auto& listHeading = sidebar.emplace<gui::Label>("Scrollable options", font); listHeading.setFontSize(13);
+        for (int i = 1; i <= 12; ++i) sidebar.emplace<gui::Checkbox>("Option " + std::to_string(i), font, i % 3 == 0);
+        auto& spacer = sidebar.emplace<gui::Panel>(); spacer.setFlex(1); spacer.setBackgroundColor({0, 0, 0, 0});
+        auto& instructions = sidebar.emplace<gui::Label>("Tab / Shift+Tab: focus\nEnter / Space: activate\nArrows: adjust slider\nWheel / PageUp / PageDown: scroll\nV: toggle overlay", font); instructions.setFontSize(12);
 
         auto& content = root.emplace<gui::Container>();
         content.setLayout(gui::Layout::Vertical); content.setPadding({24, 24, 24, 24}); content.setSpacing(16);

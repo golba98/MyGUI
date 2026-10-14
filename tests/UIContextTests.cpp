@@ -2,6 +2,7 @@
 #include "gui/Button.hpp"
 #include "gui/Checkbox.hpp"
 #include "gui/ProgressBar.hpp"
+#include "gui/ScrollView.hpp"
 #include "gui/Slider.hpp"
 #include "gui/UIContext.hpp"
 
@@ -20,6 +21,9 @@ void mouse(gui::UIContext& ui, double x, double y, gui::ButtonAction action) {
 }
 void click(gui::UIContext& ui, double x, double y) {
     mouse(ui, x, y, gui::ButtonAction::Press); mouse(ui, x, y, gui::ButtonAction::Release);
+}
+void wheel(gui::UIContext& ui, double x, double y, double dy, double dx = 0) {
+    ui.handleEvent(gui::Event{gui::MouseScrollEvent{dx, dy, x, y}});
 }
 void key(gui::UIContext& ui, gui::Key key, gui::KeyAction action, bool shift = false) {
     ui.handleEvent(gui::Event{gui::KeyEvent{key, 0, action, {.shift = shift}}});
@@ -209,9 +213,75 @@ void testSlider() {
     gui::ProgressBar progress{1.5f}; check(progress.value() == 1, "progress clamps to one");
     progress.setValue(std::nanf("")); check(progress.value() == 0, "NaN progress becomes zero");
 }
+void testScrollView() {
+    gui::UIContext ui;
+    auto& view = ui.root().emplace<gui::ScrollView>(); view.setBounds({0, 0, 300, 200});
+    std::vector<gui::Button*> rows; int clicked = -1;
+    for (int i = 0; i < 10; ++i) {
+        // Buttons add 16 units of padding to the preferred height: rows are 50 tall.
+        auto& row = view.content().emplace<gui::Button>("row"); row.setPreferredSize({0, 34});
+        row.setOnClick([&clicked, i] { clicked = i; }); rows.push_back(&row);
+    }
+    ui.layout({300, 200, 300, 200});
+    check(near(view.contentSize().height, 500) && near(view.maxScrollOffset().y, 300), "content keeps its preferred height");
+    check(near(view.viewport().width, 290) && near(rows[0]->bounds().width, 290), "the scrollbar gutter is never covered by content");
+    check(near(view.maxScrollOffset().x, 0), "horizontal scrolling is off by default");
+    wheel(ui, 50, 50, -1);
+    check(near(view.scrollOffset().y, gui::ScrollView::lineStep) && near(rows[0]->bounds().y, -gui::ScrollView::lineStep), "wheel down scrolls content up");
+    view.setScrollOffset({0, 1000}); ui.layout({300, 200, 300, 200});
+    check(near(view.scrollOffset().y, 300) && near(rows[9]->bounds().y, 150), "offsets clamp to the content end");
+    click(ui, 50, 10); check(clicked == 6, "clicks hit the scrolled content");
+    wheel(ui, 50, 50, -1); check(near(view.scrollOffset().y, 300), "wheel at the limit leaves the offset alone");
+    view.setScrollOffset({0, 0}); ui.layout({300, 200, 300, 200});
+    clicked = -1; click(ui, 295, 190);
+    check(clicked == -1, "the gutter does not route to content beside it");
+    check(near(view.scrollOffset().y, 200), "clicking the track below the thumb pages down");
+
+    // Thumb drag captures and maps thumb travel to the offset range.
+    view.setScrollOffset({0, 0}); ui.layout({300, 200, 300, 200});
+    // Thumb length is 200 * 200 / 500 = 80, so 120 units of travel cover 300 offset units.
+    mouse(ui, 295, 10, gui::ButtonAction::Press); check(view.dragging() && ui.capturedWidget() == &view, "pressing the thumb captures the pointer");
+    move(ui, 600, 70); check(near(view.scrollOffset().y, 150), "thumb drag follows the pointer outside the view");
+    mouse(ui, 600, 70, gui::ButtonAction::Release); check(!view.dragging() && !ui.capturedWidget(), "release ends the thumb drag");
+
+    view.setScrollOffset({0, 0}); ui.layout({300, 200, 300, 200});
+    ui.requestFocus(rows[0]);
+    for (int i = 0; i < 9; ++i) key(ui, gui::Key::Tab, gui::KeyAction::Press);
+    check(rows[9]->focused() && rows[9]->bounds().y + 50 <= 200 && rows[9]->bounds().y >= 0, "Tab scrolls the focused widget into view");
+    key(ui, gui::Key::Tab, gui::KeyAction::Press);
+    check(rows[0]->focused() && rows[0]->bounds().y >= 0, "wrapping focus scrolls back to the top");
+    key(ui, gui::Key::PageDown, gui::KeyAction::Press);
+    check(near(view.scrollOffset().y, 200), "PageDown bubbles from a focused child and scrolls a page");
+
+    // Nested views: the inner one consumes the wheel until it reaches its limit.
+    gui::UIContext nested;
+    auto& outer = nested.root().emplace<gui::ScrollView>(); outer.setBounds({0, 0, 200, 200});
+    auto& inner = outer.content().emplace<gui::ScrollView>(); inner.setPreferredSize({0, 100}); inner.setMinimumSize({0, 100});
+    auto& tall = inner.content().emplace<gui::Panel>(); tall.setPreferredSize({0, 300});
+    auto& filler = outer.content().emplace<gui::Panel>(); filler.setPreferredSize({0, 400});
+    nested.layout({200, 200, 200, 200});
+    wheel(nested, 50, 50, -1);
+    check(near(inner.scrollOffset().y, 40) && near(outer.scrollOffset().y, 0), "the innermost view consumes the wheel");
+    wheel(nested, 50, 50, 1); wheel(nested, 50, 50, 1);
+    check(near(inner.scrollOffset().y, 0) && near(outer.scrollOffset().y, 0), "neither view scrolls past its start");
+    for (int i = 0; i < 5; ++i) wheel(nested, 50, 50, -1);
+    check(near(inner.scrollOffset().y, 200) && near(outer.scrollOffset().y, 0), "the inner view stops at its end");
+    wheel(nested, 50, 50, -1);
+    check(near(outer.scrollOffset().y, 40), "the wheel bubbles to the outer view at the inner limit");
+
+    gui::UIContext wide;
+    auto& sideways = wide.root().emplace<gui::ScrollView>(); sideways.setBounds({0, 0, 100, 100});
+    sideways.setHorizontalScrolling(true); sideways.content().setLayout(gui::Layout::Horizontal);
+    auto& strip = sideways.content().emplace<gui::Panel>(); strip.setPreferredSize({400, 50});
+    wide.layout({100, 100, 100, 100});
+    wheel(wide, 50, 50, 0, -1);
+    check(near(sideways.maxScrollOffset().x, 300) && near(sideways.scrollOffset().x, 40) && near(strip.bounds().x, -40),
+          "horizontal scrolling uses the horizontal wheel");
+    check(near(sideways.viewport().height, 100 - gui::ScrollView::scrollbarWidth), "a horizontal bar reserves its own gutter");
+}
 }
 int main() {
-    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); }
+    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); testScrollView(); }
     catch (const std::exception& error) { std::fprintf(stderr, "Error: %s\n", error.what()); return 1; }
     return failures ? 1 : 0;
 }

@@ -126,7 +126,7 @@ void Container::arrange() {
 void Container::draw(Renderer& renderer) const {
     if (!visible()) return;
     Panel::draw(renderer);
-    if (clipChildren_) renderer.pushClip(contentBounds());
+    if (clipChildren_) renderer.pushClip(childClip());
     try {
         for (const auto& child : children_) {
             if (child->visible() && !child->pendingRemoval_) child->draw(renderer);

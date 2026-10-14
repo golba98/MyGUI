@@ -64,7 +64,7 @@ void UIContext::ensureLayout() {
 Widget* UIContext::targetAt(Widget& widget, double x, double y, Rect clip) {
     if (!widget.visible_ || widget.pendingRemoval_ || !clip.contains(x, y)) return nullptr;
     if (auto* container = dynamic_cast<Container*>(&widget)) {
-        const auto childClip = container->clipChildren() ? intersect(clip, container->contentBounds()) : clip;
+        const auto childClip = container->clipChildren() ? intersect(clip, container->childClip()) : clip;
         for (auto it = container->children_.rbegin(); it != container->children_.rend(); ++it) {
             if (auto* result = targetAt(**it, x, y, childClip)) return result;
         }
@@ -87,6 +87,17 @@ void UIContext::focusOrder(Widget& widget, std::vector<Widget*>& order) {
     if (auto* container = dynamic_cast<Container*>(&widget)) {
         for (auto& child : container->children_) focusOrder(*child, order);
     }
+}
+void UIContext::reveal(Widget& widget) {
+    // Innermost first; each step relayouts so outer views see updated bounds.
+    constexpr float margin = 4;
+    for (auto* ancestor = widget.parent_; ancestor; ancestor = ancestor->parent_) {
+        ensureLayout();
+        const auto& b = widget.bounds();
+        ancestor->scrollIntoView({b.x - margin, b.y - margin, b.width + 2 * margin, b.height + 2 * margin});
+    }
+    ensureLayout();
+    updateHover();
 }
 void UIContext::draw(Renderer& renderer) { ensureLayout(); updateHover(); root_->draw(renderer); }
 bool UIContext::handleEvent(const Event& event) {
@@ -117,7 +128,7 @@ bool UIContext::handleEvent(const Event& event) {
         const auto it = std::find(order.begin(), order.end(), focused_);
         std::size_t index = it == order.end() ? (key->mods.shift ? order.size() - 1 : 0)
             : (static_cast<std::size_t>(it - order.begin()) + (key->mods.shift ? order.size() - 1 : 1)) % order.size();
-        requestFocus(order[index]);
+        if (requestFocus(order[index])) reveal(*order[index]);
         return true;
     }
     Widget* target = pointer ? (captured_ ? captured_ : (cursorInside_ ? targetAt(*root_, mouseX_, mouseY_, root_->bounds()) : nullptr)) : focused_;
