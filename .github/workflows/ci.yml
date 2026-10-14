@@ -1,4 +1,4 @@
-name: Linux build and tests
+name: Build and tests
 on:
   push:
   pull_request:
@@ -31,3 +31,39 @@ jobs:
           for example in MyGUI MyGUI_hello MyGUI_layout MyGUI_widgets; do
             xvfb-run -a "$GITHUB_WORKSPACE/build/${{ matrix.preset }}/$example" --frames 3
           done
+      - name: Install and build a find_package consumer
+        run: |
+          cmake --install build/${{ matrix.preset }} --prefix "$RUNNER_TEMP/mygui"
+          cmake -S tests/package -B "$RUNNER_TEMP/consumer" -G Ninja -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/mygui"
+          cmake --build "$RUNNER_TEMP/consumer"
+          "$RUNNER_TEMP/consumer/consumer"
+
+  # Windows and macOS build everything and run the tests that need no display.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: vcpkg install glfw3 freetype --triplet x64-windows
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+      - name: Build
+        run: cmake --build build --config Debug --parallel
+      - name: Headless tests
+        run: ctest --test-dir build -C Debug -L headless --output-on-failure
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install glfw freetype ninja
+      - name: Configure
+        run: cmake --preset debug
+      - name: Build
+        run: cmake --build --preset debug --parallel
+      - name: Headless tests
+        run: ctest --preset debug -L headless

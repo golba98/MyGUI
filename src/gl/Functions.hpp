@@ -5,6 +5,10 @@
 
 #include "gui/Renderer.hpp"
 
+// glcorearb.h would include <windows.h> unless APIENTRY is already defined.
+#if defined(_WIN32) && !defined(APIENTRY)
+#define APIENTRY __stdcall
+#endif
 #include <GL/glcorearb.h>
 
 // X(type, name): every function the renderer uses, bound as gui::gl::name.

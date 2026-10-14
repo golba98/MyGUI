@@ -8,16 +8,48 @@
 #include "gui/UIContext.hpp"
 #include "gui/Window.hpp"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace example {
+// Directory of the running executable, independent of the working directory.
 inline std::filesystem::path executableDirectory(const char* argv0) {
+#if defined(_WIN32)
+    std::vector<wchar_t> buffer(MAX_PATH);
+    for (;;) {
+        const auto length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0) break;
+        if (length < buffer.size()) return std::filesystem::path{std::wstring{buffer.data(), length}}.parent_path();
+        buffer.resize(buffer.size() * 2);
+    }
+#elif defined(__APPLE__)
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buffer(size);
+    if (_NSGetExecutablePath(buffer.data(), &size) == 0) {
+        std::error_code error;
+        const auto resolved = std::filesystem::canonical(buffer.data(), error);
+        if (!error) return resolved.parent_path();
+    }
+#elif defined(__linux__)
     std::error_code error;
-#ifdef __linux__
     const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
     if (!error) return executable.parent_path();
 #endif

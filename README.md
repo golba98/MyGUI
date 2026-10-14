@@ -1,12 +1,12 @@
 # MyGUI
 
-A small C++20 GUI library and demo built on GLFW, OpenGL 3.3, and FreeType. It includes owned widget trees, horizontal and vertical layouts, nested clipping, UTF-8 text, labels, and buttons with mouse and keyboard interaction.
+A small C++20 GUI library and demo built on GLFW, OpenGL 3.3, and FreeType. It includes owned widget trees, horizontal and vertical layouts with height-for-width text wrapping, nested clipping, scrolling, UTF-8 text entry with selection and clipboard, themes, images, and labels, buttons, checkboxes, switches, sliders and progress bars with mouse and keyboard interaction.
 
-Linux is the validated platform. Public headers hide native GLFW, OpenGL, and FreeType types. Windows and macOS are not currently tested.
+Linux is the validated platform: CI builds Debug and Release and runs every test, including OpenGL rendering under Xvfb/Mesa. CI also builds everything on Windows (MSVC with vcpkg) and macOS (Homebrew) and runs the tests that need no display there; rendering and window behavior on those platforms are not yet tested. Public headers hide native GLFW, OpenGL, and FreeType types.
 
 ## Build and run
 
-Install a C++20 compiler, CMake 3.20 or newer, Ninja, GLFW, OpenGL development files, and FreeType.
+Install a C++20 compiler, CMake 3.20 or newer, Ninja, GLFW, and FreeType. OpenGL functions are loaded at runtime through GLFW, so the library has no OpenGL link dependency; the vendored [Khronos headers](third_party/khronos/SOURCE.md) supply the declarations.
 
 Ubuntu/Debian:
 
@@ -20,13 +20,43 @@ Fedora:
 sudo dnf install gcc-c++ cmake ninja-build glfw-devel mesa-libGL-devel freetype-devel
 ```
 
+macOS (Homebrew):
+
+```sh
+brew install cmake ninja glfw freetype
+```
+
 ```sh
 cmake --preset debug
 cmake --build --preset debug
 ./build/debug/MyGUI
 ```
 
+Windows (Visual Studio with [vcpkg](https://vcpkg.io)):
+
+```powershell
+vcpkg install glfw3 freetype --triplet x64-windows
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build build --config Debug
+.\build\Debug\MyGUI.exe
+```
+
 Use the `release` preset for a Release build. Font assets are bundled and copied beside the executables, so the demo and examples can be launched from another working directory. `--font PATH` chooses a different scalable Unicode font for the demo.
+
+## Using MyGUI from another project
+
+Install the library and use the exported CMake package:
+
+```sh
+cmake --install build/release --prefix /path/to/prefix
+```
+
+```cmake
+find_package(MyGUI 0.1 REQUIRED)
+target_link_libraries(app PRIVATE MyGUI::MyGUI)
+```
+
+The package installs the public headers under `include/gui`, the static library, and the bundled Noto Sans font under `share/MyGUI/fonts`. Because MyGUI is static, its package finds GLFW and FreeType for you. `tests/package` is a minimal consumer that CI builds against a fresh install. When MyGUI is added with `add_subdirectory`, link `MyGUI::MyGUI`; its tests are not built, and examples and install rules default to off (`MYGUI_BUILD_EXAMPLES`, `MYGUI_INSTALL`).
 
 ## Examples
 
@@ -64,7 +94,7 @@ Input, widget, layout, font, and image tests run without a display:
 ctest --preset debug -L headless
 ```
 
-CI builds Debug and Release on Ubuntu and runs every suite under Xvfb/Mesa. The input test executable has no GLFW, OpenGL, or FreeType dependency; the other headless suites link the library but never initialize GLFW or create a context.
+CI builds Debug and Release on Ubuntu and runs every suite under Xvfb/Mesa, smoke-runs the demo and examples, and builds `tests/package` against an installed copy. Windows and macOS jobs build everything and run the `headless` label. The input test executable has no GLFW, OpenGL, or FreeType dependency; the other headless suites link the library but never initialize GLFW or create a context.
 
 To build just the library and demo, configure with `-DBUILD_TESTING=OFF`. To save a renderer-test preview, set `MYGUI_RENDER_SNAPSHOT` to a PPM output path when running `MyGUI_tests`.
 
