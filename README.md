@@ -28,7 +28,12 @@ cmake --build --preset debug
 
 Use the `release` preset for a Release build. Font assets are bundled and copied beside the executable, so the demo can be launched from another working directory. `--font PATH` chooses a different scalable Unicode font.
 
-The demo provides an overlay-toggle button, a click counter, a disabled button, and clipped overlapping panels. Hover the overlay, resize the window, or press Tab/Shift+Tab to change focus and Enter/Space to activate a button. V toggles the overlay. `--log-events` enables event logging; `--frames N` exits after N frames for smoke tests. `--width N --height N` selects the starting window size.
+The demo provides an overlay-toggle button, a click counter, a disabled button, and clipped overlapping panels. Hover the overlay, resize the window, or press Tab/Shift+Tab to change focus and Enter/Space to activate a button. V toggles the overlay. `--log-events` logs event names, coordinates, actions, modifiers, Unicode code points, and resize sources; `--frames N` exits after N frames for smoke tests. `--width N --height N` selects the starting window size.
+
+The input diagnostics display logical mouse coordinates, accumulated movement and scroll,
+held/pressed/released states for the left mouse button and V key, and the last key,
+button, or text event. Single-frame edges can be brief; event logging records every
+transition even when a press and release happen during the same frame.
 
 ## Tests
 
@@ -57,7 +62,12 @@ To build just the library and demo, configure with `-DBUILD_TESTING=OFF`. To sav
 
 All window operations, input feeding, UI dispatch, and drawing belong on the main thread. The library initializes GLFW for the first `gui::Window` and shuts it down after the last one. Destroying or replacing one window leaves other windows usable. Do not mix this ownership with externally managed native GLFW windows, or destroy windows inside native callbacks.
 
-Call `pollEvents()` on **one** live window once per application frame. GLFW processes events globally, so the call resets pressed/released edges and scroll offsets for every library window, then polls all of them. Held state and cursor positions persist. Callback exceptions are saved and rethrown at the polling boundary, never through GLFW; if several windows have pending exceptions, subsequent polls report the remaining ones. Recursive polling is rejected.
+Call `pollEvents()` on **one** live window once per application frame. GLFW processes events globally, so the call resets pressed/released edges and scroll offsets for every library window, then polls all of them. Held state and cursor positions persist. Movement deltas reset at the same boundary
+and accumulate signed logical-coordinate differences across mouse movement, button,
+and scroll position samples. The first sample establishes a baseline without movement.
+Focus changes and cursor entry/leave invalidate that baseline; the next sample avoids a re-entry
+jump while retaining any movement already recorded in the frame. Focus loss clears
+held keys/buttons and marks release edges, without manufacturing release events. Callback exceptions are saved and rethrown at the polling boundary, never through GLFW; if several windows have pending exceptions, subsequent polls report the remaining ones. Recursive polling is rejected.
 
 Choose event delivery explicitly when practical:
 
@@ -65,7 +75,18 @@ Choose event delivery explicitly when practical:
 - `EventDelivery::Callback`: update input and call the handler; never enqueue.
 - `EventDelivery::Both`: enqueue before calling the handler. This is the backward-compatible default.
 
-Changing to callback-only delivery discards unread queued events. Re-enabling a queue records only future events. Queue consumers must drain unread events; callback-only delivery avoids queue accumulation. Using both APIs to dispatch to the same UI would dispatch every event twice, so choose one delivery path for each UI context.
+Changing to callback-only delivery discards unread queued events. Re-enabling a queue records only future events.
+Callbacks may clear or replace themselves; their callable state persists across events
+without copying the callable for every delivery.
+
+The queue owns copies of events and returns values from `nextEvent()`; returned events
+remain valid after window destruction. Callback event references are valid only during
+the call, so copy an event to retain it. `gui::EventQueue` is also usable independently
+of a window: it starts with 64 circular slots, doubles when full, and reuses capacity
+when drained or cleared. It never coalesces or silently drops events. Memory allocation
+failure is reported through the existing deferred-exception boundary for window delivery.
+
+Queue consumers must drain unread events; callback-only delivery avoids queue accumulation. Using both APIs to dispatch to the same UI would dispatch every event twice, so choose one delivery path for each UI context.
 
 ```cpp
 window.setEventDelivery(gui::EventDelivery::Queue);
@@ -78,7 +99,12 @@ while (auto event = window.nextEvent()) {
 }
 ```
 
-Call `window.makeContextCurrent()` before creating, drawing with, or destroying its renderer. `setSwapInterval(1)` makes that window current and enables vsync. Use one renderer per context and declare it after its window so GPU resources are destroyed first. Font objects contain CPU resources and can be shared by renderers; glyph atlases remain owned by each renderer. Window resize callbacks update size/event data without changing any OpenGL viewport; `Renderer::beginFrame()` sets the viewport.
+Call `window.makeContextCurrent()` before creating, drawing with, or destroying its renderer. `setSwapInterval(1)` makes that window current and enables vsync. Use one renderer per context and declare it after its window so GPU resources are destroyed first. Font objects contain CPU resources and can be shared by renderers; glyph atlases remain owned by each renderer. Window resize callbacks update cached size/event data without changing any OpenGL viewport.
+`WindowResizeEvent::source` distinguishes `ResizeSource::Window` from
+`ResizeSource::Framebuffer`; both retain `EventType::WindowResized` and contain the
+latest logical and framebuffer dimensions. Framebuffer callbacks also query the native
+logical dimensions because some backends can omit a logical-size callback when a
+hidden window is resized. `viewport()` returns the same cached snapshot; `Renderer::beginFrame()` sets the viewport.
 
 The renderer manages its drawing state rather than restoring another graphics engine's bindings. Frames use `beginFrame`, `clear`, draw calls, and `endFrame`. Clearing discards earlier queued drawing and clears the whole framebuffer, regardless of the active clip. Clip pushes intersect their parents; pops must balance before `endFrame`. A new frame resets the clip stack. Drawing uses logical coordinates, while scissor rectangles and glyph rasterization account for independent framebuffer X/Y scales.
 

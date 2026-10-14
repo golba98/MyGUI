@@ -56,6 +56,7 @@ public:
     // When callback delivery is enabled, receives events after state update on the main
     // thread. GLFW may deliver callbacks outside pollEvents(). Using both
     // delivery APIs receives each event twice. Do not poll recursively.
+    // The event reference is valid only during the call; copy it to retain it.
     // Handler exceptions are deferred until pollEvents(), never through GLFW.
     void setEventCallback(EventCallback callback);
     // Both is the default. Switching to Callback discards unread queued events.
@@ -82,7 +83,7 @@ private:
     static void cursorEnterCallback(GLFWwindow* window, int entered);
 
     void onFramebufferResize(int width, int height);
-    void emitResize(int logicalWidth, int logicalHeight);
+    void emitResize(ResizeSource source);
     void emit(const Event& event) noexcept;
 
     struct State;

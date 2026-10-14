@@ -182,26 +182,64 @@ void testDelivery(gui::Window& window, GLFWwindow* native, const Callbacks& call
     window.setEventCallback({});
 }
 
+void testMovement(gui::Window& window, GLFWwindow* native, const Callbacks& callbacks) {
+    window.pollEvents();
+    drain(window);
+    callbacks.enter(native, GLFW_FALSE);
+    callbacks.enter(native, GLFW_TRUE);
+    callbacks.move(native, 20.25, 30.5);
+    check(window.input().mouseDeltaX() == 0 && window.input().mouseDeltaY() == 0,
+        "first native position after re-entry seeds movement baseline");
+    callbacks.move(native, 25.5, 27.25);
+    callbacks.move(native, 22.75, 35.75);
+    check(window.input().mouseDeltaX() == 2.5 && window.input().mouseDeltaY() == 5.25,
+        "native cursor callbacks accumulate per-frame logical movement");
+    window.pollEvents();
+    drain(window);
+    check(window.input().mouseDeltaX() == 0 && window.input().mouseDeltaY() == 0,
+        "poll resets native movement deltas");
+    callbacks.key(native, GLFW_KEY_A, 1, GLFW_PRESS, 0);
+    callbacks.button(native, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+    callbacks.focus(native, GLFW_FALSE);
+    callbacks.focus(native, GLFW_TRUE);
+    const auto delta = window.input().mouseDelta();
+    callbacks.move(native, 1000, 1000);
+    check(window.input().mouseDeltaX() == delta.x && window.input().mouseDeltaY() == delta.y
+        && window.input().isKeyReleased(gui::Key::A)
+        && window.input().isMouseButtonReleased(gui::MouseButton::Left),
+        "native focus loss releases inputs and suppresses cursor jump on regain");
+    drain(window);
+}
+
 void testResize(gui::Window& window, GLFWwindow* native, const Callbacks& callbacks) {
     const auto initial = window.viewport();
     callbacks.size(native, 500, 400);
     const auto logicalEvent = next(window);
     const auto& logical = payload<gui::WindowResizeEvent>(logicalEvent);
     check(logical.logicalWidth == 500 && logical.logicalHeight == 400
-        && logical.width == initial.framebufferWidth && logical.height == initial.framebufferHeight,
+        && logical.width == initial.framebufferWidth && logical.height == initial.framebufferHeight
+        && logical.source == gui::ResizeSource::Window
+        && window.viewport().logicalWidth == 500 && window.viewport().logicalHeight == 400,
         "logical resize callback reports framebuffer and logical dimensions");
 
-    for (const int scale : {1, 2}) {
+    callbacks.size(native, initial.logicalWidth, initial.logicalHeight);
+    drain(window);
+    for (const auto scale : {gui::MousePosition{1, 1}, gui::MousePosition{2, 2}, gui::MousePosition{1.5, 2}}) {
         const auto getInteger = reinterpret_cast<PFNGLGETINTEGERVPROC>(window.glProcLoader()("glGetIntegerv"));
         if (!getInteger) throw std::runtime_error("Missing glGetIntegerv");
         GLint before[4]{};
         getInteger(GL_VIEWPORT, before);
-        callbacks.framebuffer(native, initial.logicalWidth * scale, initial.logicalHeight * scale);
+        const auto framebufferWidth = static_cast<int>(initial.logicalWidth * scale.x);
+        const auto framebufferHeight = static_cast<int>(initial.logicalHeight * scale.y);
+        callbacks.framebuffer(native, framebufferWidth, framebufferHeight);
         const auto resize = next(window);
         const auto& size = payload<gui::WindowResizeEvent>(resize);
         const auto viewport = window.viewport();
-        check(size.width == initial.logicalWidth * scale && size.height == initial.logicalHeight * scale
+        check(size.width == framebufferWidth && size.height == framebufferHeight
             && size.logicalWidth == initial.logicalWidth && size.logicalHeight == initial.logicalHeight
+            && size.source == gui::ResizeSource::Framebuffer
+            && viewport.logicalWidth == initial.logicalWidth && viewport.logicalHeight == initial.logicalHeight
+            && viewport.scaleX() == scale.x && viewport.scaleY() == scale.y
             && window.getWidth() == size.width && window.getHeight() == size.height
             && viewport.framebufferWidth == size.width, "framebuffer resize updates event, getters, and viewport");
         callbacks.move(native, 200.25, 120.5);
@@ -217,6 +255,7 @@ void testResize(gui::Window& window, GLFWwindow* native, const Callbacks& callba
     const auto minimized = next(window);
     check(payload<gui::WindowResizeEvent>(minimized).width == 0 && window.getHeight() == 0,
         "zero framebuffer size is safe");
+    callbacks.size(native, initial.logicalWidth, initial.logicalHeight);
     callbacks.framebuffer(native, initial.framebufferWidth, initial.framebufferHeight);
     drain(window);
 
@@ -235,7 +274,7 @@ void testResize(gui::Window& window, GLFWwindow* native, const Callbacks& callba
         if (!receivedResize) std::this_thread::sleep_for(std::chrono::milliseconds{5});
     } while (!receivedResize && std::chrono::steady_clock::now() < deadline);
     check(receivedResize && window.viewport().logicalWidth == 500 && window.viewport().logicalHeight == 400,
-        "actual window resize produces framework resize events");
+        "actual resize produces consistent dimensions even without a logical callback");
 }
 
 void testDeliveryModes(gui::Window& window, GLFWwindow* native, const Callbacks& callbacks) {
@@ -269,12 +308,62 @@ void testDeliveryModes(gui::Window& window, GLFWwindow* native, const Callbacks&
     drain(window);
 }
 
+// Copying a handler on every event would reset its local state and allocate for
+// sufficiently large captures. Track both copies and persistent invocation state.
+struct TrackedHandler {
+    int* copies;
+    int* observed;
+    int calls{0};
+    TrackedHandler(int& copyCount, int& observedCount) : copies{&copyCount}, observed{&observedCount} {}
+    TrackedHandler(const TrackedHandler& other)
+        : copies{other.copies}, observed{other.observed}, calls{other.calls} { ++*copies; }
+    void operator()(const gui::Event&) { *observed = ++calls; }
+};
+
+void testCallbackStorage(gui::Window& window, GLFWwindow* native, const Callbacks& callbacks) {
+    int copies = 0, observed = 0;
+    window.setEventDelivery(gui::EventDelivery::Callback);
+    window.setEventCallback(TrackedHandler{copies, observed});
+    const auto registeredCopies = copies;
+    for (int i = 0; i < 1000; ++i) callbacks.character(native, 'C');
+    check(copies == registeredCopies && observed == 1000,
+        "callback delivery retains callable state without per-event copies");
+    auto lifetime = std::make_shared<int>(7);
+    std::weak_ptr<int> weak = lifetime;
+    window.setEventCallback([owned = lifetime, &window, &weak](const gui::Event&) {
+        window.setEventCallback({});
+        check(!weak.expired() && *owned == 7, "self-clearing callback retains its captures during invocation");
+    });
+    lifetime.reset();
+    callbacks.character(native, 'L');
+    check(weak.expired(), "self-clearing callback releases captures after invocation");
+    window.setEventCallback([&](const gui::Event&) {
+        window.setEventCallback([&](const gui::Event&) { ++observed; });
+    });
+    callbacks.character(native, 'R');
+    callbacks.character(native, 'S');
+    check(observed == 1001, "replacement callback starts on the next event");
+    window.setEventCallback({});
+    window.setEventDelivery(gui::EventDelivery::Queue);
+    for (unsigned int i = 0; i < 200; ++i) callbacks.character(native, 0x1000 + i);
+    bool ordered = true;
+    for (unsigned int i = 0; i < 200; ++i) {
+        const auto event = window.nextEvent();
+        ordered = ordered && event && payload<gui::TextInputEvent>(*event).codepoint == 0x1000 + i;
+    }
+    check(ordered && !window.nextEvent(), "native event burst survives queue growth in order");
+    window.setEventDelivery(gui::EventDelivery::Both);
+}
+
 void testWindowLifetime(gui::Window& survivor, GLFWwindow* native, const Callbacks& callbacks) {
     drain(survivor);
+    std::optional<gui::Event> retainedEvent;
     {
         gui::Window temporary{100, 100, "temporary"};
         const auto otherNative = glfwGetCurrentContext();
         const Callbacks otherCallbacks{otherNative};
+        otherCallbacks.character(otherNative, 0x1F642);
+        retainedEvent = temporary.nextEvent();
         otherCallbacks.key(otherNative, GLFW_KEY_C, 1, GLFW_PRESS, 0);
         check(temporary.input().isKeyPressed(gui::Key::C), "second window receives independent state");
         survivor.pollEvents();
@@ -283,6 +372,8 @@ void testWindowLifetime(gui::Window& survivor, GLFWwindow* native, const Callbac
         try { gui::Window invalid{0, 100, "invalid"}; } catch (const std::invalid_argument&) { failed = true; }
         check(failed && !temporary.shouldClose(), "failed construction leaves live windows usable");
     }
+    check(retainedEvent && payload<gui::TextInputEvent>(*retainedEvent).codepoint == U'\U0001F642',
+        "popped event outlives its owning window");
     survivor.makeContextCurrent();
     callbacks.character(native, 'L');
     bool delivered = false;
@@ -366,11 +457,18 @@ int main() {
         if (!native) throw std::runtime_error("Missing current context");
         const Callbacks callbacks{native};
         check(!window.nextEvent(), "construction does not enqueue artificial startup events");
+        double initialX{}, initialY{};
+        glfwGetCursorPos(native, &initialX, &initialY);
+        check(window.input().mouseX() == initialX && window.input().mouseY() == initialY
+            && window.input().mouseDeltaX() == 0 && window.input().mouseDeltaY() == 0,
+            "construction seeds native cursor position without artificial movement");
         window.pollEvents();
         drain(window);
         testDelivery(window, native, callbacks);
+        testMovement(window, native, callbacks);
         testResize(window, native, callbacks);
         testDeliveryModes(window, native, callbacks);
+        testCallbackStorage(window, native, callbacks);
         testWindowLifetime(window, native, callbacks);
         testMoveAndExceptions(window, native, callbacks);
     }

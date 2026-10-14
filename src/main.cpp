@@ -7,10 +7,59 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <stdexcept>
 
 namespace {
+const char* actionName(gui::KeyAction action) {
+    switch (action) {
+        case gui::KeyAction::Press: return "pressed";
+        case gui::KeyAction::Release: return "released";
+        case gui::KeyAction::Repeat: return "repeated";
+    }
+    return "unknown action";
+}
+
+void describeModifiers(std::ostream& out, const gui::Modifiers& mods) {
+    out << " modifiers=[" << (mods.shift ? "Shift " : "")
+        << (mods.control ? "Ctrl " : "") << (mods.alt ? "Alt " : "")
+        << (mods.super ? "Super " : "") << ']';
+}
+
+std::string describeEvent(const gui::Event& event) {
+    std::ostringstream out;
+    if (const auto* key = event.getIf<gui::KeyEvent>()) {
+        out << "Key " << gui::toString(key->key) << ' ' << actionName(key->action)
+            << " scancode=" << key->scancode;
+        describeModifiers(out, key->mods);
+    } else if (const auto* move = event.getIf<gui::MouseMoveEvent>()) {
+        out << "Mouse moved: (" << move->x << ", " << move->y << ')';
+    } else if (const auto* button = event.getIf<gui::MouseButtonEvent>()) {
+        out << "Mouse " << gui::toString(button->button)
+            << (button->action == gui::ButtonAction::Press ? " pressed" : " released")
+            << " at (" << button->x << ", " << button->y << ')';
+        describeModifiers(out, button->mods);
+    } else if (const auto* scroll = event.getIf<gui::MouseScrollEvent>()) {
+        out << "Scroll: (" << scroll->xOffset << ", " << scroll->yOffset
+            << ") at (" << scroll->x << ", " << scroll->y << ')';
+    } else if (const auto* resize = event.getIf<gui::WindowResizeEvent>()) {
+        out << (resize->source == gui::ResizeSource::Window ? "Window" : "Framebuffer")
+            << " resized: logical=" << resize->logicalWidth << 'x' << resize->logicalHeight
+            << " framebuffer=" << resize->width << 'x' << resize->height;
+    } else if (const auto* text = event.getIf<gui::TextInputEvent>()) {
+        out << "Text input: U+" << std::hex << std::uppercase << static_cast<unsigned int>(text->codepoint);
+    } else if (const auto* focus = event.getIf<gui::WindowFocusEvent>()) {
+        out << "Window focus " << (focus->focused ? "gained" : "lost");
+    } else if (const auto* enter = event.getIf<gui::CursorEnterEvent>()) {
+        out << "Cursor " << (enter->entered ? "entered" : "left");
+    } else if (event.getIf<gui::WindowCloseEvent>()) {
+        out << "Window closing";
+    }
+    return out.str();
+}
+
 class HoverPanel : public gui::Panel {
 public:
     void draw(gui::Renderer& renderer) const override {
@@ -112,6 +161,8 @@ int main(int argc, char** argv) {
         auto& description = content.emplace<gui::Label>("Owned widgets, automatic layout, keyboard focus, and HiDPI text.", font); description.setFontSize(14);
         auto& gallery = content.emplace<Gallery>(font);
         auto& status = content.emplace<gui::Label>("Clicks: 0 · Overlay visible", font); status.setFontSize(15);
+        auto& inputStatus = content.emplace<gui::Label>("", font); inputStatus.setFontSize(12);
+        auto& lastTransition = content.emplace<gui::Label>("Last input: none", font); lastTransition.setFontSize(12);
         int clicks = 0;
         const auto updateStatus = [&] {
             status.setText("Clicks: " + std::to_string(clicks) + (gallery.overlay().visible() ? " · Overlay visible" : " · Overlay hidden"));
@@ -125,12 +176,29 @@ int main(int argc, char** argv) {
             window.pollEvents();
             ui.layout(window.viewport());
             while (auto event = window.nextEvent()) {
-                if (logEvents) std::cout << "Event " << static_cast<int>(event->type()) << '\n';
+                if (logEvents) std::cout << describeEvent(*event) << '\n';
+                if (event->getIf<gui::KeyEvent>() || event->getIf<gui::MouseButtonEvent>()
+                    || event->getIf<gui::TextInputEvent>())
+                    lastTransition.setText(describeEvent(*event));
                 if (!ui.handleEvent(*event)) {
                     if (const auto* key = event->getIf<gui::KeyEvent>(); key && key->key == gui::Key::V && key->action == gui::KeyAction::Press)
                         toggleOverlay();
                 }
             }
+            const auto& input = window.input();
+            std::ostringstream diagnostics;
+            diagnostics << std::fixed << std::setprecision(2)
+                << "Mouse: (" << input.mouseX() << ", " << input.mouseY() << ")  Delta: ("
+                << input.mouseDeltaX() << ", " << input.mouseDeltaY() << ")  Scroll: ("
+                << input.scrollX() << ", " << input.scrollY() << ")\n"
+                << "Left: down=" << input.isMouseButtonDown(gui::MouseButton::Left)
+                << " pressed=" << input.isMouseButtonPressed(gui::MouseButton::Left)
+                << " released=" << input.isMouseButtonReleased(gui::MouseButton::Left)
+                << "    V: down=" << input.isKeyDown(gui::Key::V)
+                << " pressed=" << input.isKeyPressed(gui::Key::V)
+                << " released=" << input.isKeyReleased(gui::Key::V);
+            const auto diagnosticText = diagnostics.str();
+            if (inputStatus.text() != diagnosticText) inputStatus.setText(diagnosticText);
             if (window.shouldClose()) break;
             window.makeContextCurrent();
             renderer.beginFrame(window.viewport()); renderer.clear({0.07f, 0.08f, 0.11f, 1});
