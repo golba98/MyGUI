@@ -20,7 +20,7 @@ public:
     Container& root() noexcept { return *root_; }
     const Container& root() const noexcept { return *root_; }
     // Widgets read the theme while drawing, so changes apply to the next frame.
-    void setTheme(const Theme& theme) noexcept { theme_ = theme; dirty_ = true; }
+    void setTheme(const Theme& theme) noexcept { theme_ = theme; invalidateLayout(); }
     const Theme& theme() const noexcept { return theme_; }
     // Non-owning; the clipboard must outlive its use here. nullptr disables
     // copy and paste in text widgets.
@@ -38,11 +38,20 @@ public:
     Widget* capturedWidget() const noexcept { return captured_; }
     Widget* hoveredWidget() const noexcept { return hovered_; }
     bool dispatching() const noexcept { return dispatching_; }
+    // True when something visible may have changed since the last draw():
+    // layout, hover, focus, handled events, window refresh requests, or a
+    // widget property. Applications that wait for events can skip drawing
+    // while this is false. Starts true; draw() clears it.
+    bool needsRedraw() const noexcept { return redraw_; }
+    void requestRedraw() noexcept { redraw_ = true; }
+    // Completes pending layout and clears the flag without drawing, for
+    // frames drawn another way.
+    void markDrawn();
 
 private:
     friend class Widget;
     friend class Container;
-    void invalidateLayout() noexcept { dirty_ = true; }
+    void invalidateLayout() noexcept { dirty_ = true; redraw_ = true; }
     void unavailable(Widget& widget) noexcept;
     bool available(const Widget* widget) const noexcept;
     bool belongsTo(const Widget* widget, const Widget& ancestor) const noexcept;
@@ -59,6 +68,6 @@ private:
     Widget* captured_{nullptr};
     double mouseX_{0}, mouseY_{0};
     bool cursorInside_{true}, windowFocused_{true};
-    bool dirty_{true}, dispatching_{false};
+    bool dirty_{true}, dispatching_{false}, redraw_{true};
 };
 } // namespace gui

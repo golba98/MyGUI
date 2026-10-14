@@ -13,7 +13,7 @@ public:
     Checkbox() : Checkbox("") {}
     explicit Checkbox(std::string text, std::shared_ptr<Font> font = nullptr, bool checked = false);
     // Programmatic changes never call the change callback.
-    void setChecked(bool checked) noexcept { checked_ = checked; }
+    void setChecked(bool checked) noexcept { checked_ = checked; requestRedraw(); }
     bool checked() const noexcept { return checked_; }
     // Called after a user toggle, before any click callback.
     void setOnChange(std::function<void(bool)> callback) { onChange_ = std::move(callback); }

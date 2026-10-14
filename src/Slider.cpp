@@ -31,13 +31,17 @@ Slider& Slider::operator=(const Slider& other) {
 void Slider::setRange(float minimum, float maximum) {
     if (!std::isfinite(minimum) || !std::isfinite(maximum) || minimum > maximum)
         throw std::invalid_argument("Slider range must be finite with minimum <= maximum");
-    minimum_ = minimum; maximum_ = maximum; value_ = normalize(value_);
+    minimum_ = minimum; maximum_ = maximum; value_ = normalize(value_); requestRedraw();
 }
 void Slider::setStep(float step) {
     if (!std::isfinite(step) || step < 0) throw std::invalid_argument("Slider step must be finite and nonnegative");
-    step_ = step; value_ = normalize(value_);
+    step_ = step; value_ = normalize(value_); requestRedraw();
 }
-void Slider::setValue(float value) noexcept { if (!std::isnan(value)) value_ = normalize(value); }
+void Slider::setValue(float value) noexcept {
+    if (std::isnan(value)) return;
+    value_ = normalize(value);
+    requestRedraw();
+}
 float Slider::normalize(float value) const noexcept {
     if (step_ > 0) value = minimum_ + std::round((value - minimum_) / step_) * step_;
     return std::clamp(value, minimum_, maximum_);

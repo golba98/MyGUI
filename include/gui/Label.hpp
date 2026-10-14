@@ -20,10 +20,10 @@ public:
     const std::shared_ptr<Font>& font() const noexcept { return font_; }
     void setFontSize(float size);
     float fontSize() const noexcept { return fontSize_; }
-    void setTextColor(Color color) noexcept { color_ = color; }
+    void setTextColor(Color color) noexcept { color_ = color; requestRedraw(); }
     Color textColor() const noexcept { return color_; }
     void setAlignment(HorizontalAlign horizontal, VerticalAlign vertical) noexcept {
-        horizontal_ = horizontal; vertical_ = vertical;
+        horizontal_ = horizontal; vertical_ = vertical; requestRedraw();
     }
     // Wrapped labels break lines to fit their width and report the resulting
     // height through heightForWidth. Their preferred width stays the unwrapped

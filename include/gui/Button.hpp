@@ -29,8 +29,8 @@ public:
     explicit Button(std::string text, std::shared_ptr<Font> font = nullptr);
     void setOnClick(std::function<void()> callback) { onClick_ = std::move(callback); }
     // A custom style overrides the theme until resetStyle().
-    void setStyle(ButtonStyle style) noexcept { style_ = style; }
-    void resetStyle() noexcept { style_.reset(); }
+    void setStyle(ButtonStyle style) noexcept { style_ = style; requestRedraw(); }
+    void resetStyle() noexcept { style_.reset(); requestRedraw(); }
     ButtonStyle style() const noexcept { return style_ ? *style_ : ButtonStyle::fromTheme(theme()); }
     bool pressed() const noexcept { return keyboardKey_ != Key::Unknown || (pointerPressed_ && hovered()); }
     Size preferredSize() const noexcept override;

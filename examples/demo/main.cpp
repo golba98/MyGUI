@@ -1,3 +1,4 @@
+#include "Example.hpp"
 #include "gui/Button.hpp"
 #include "gui/Checkbox.hpp"
 #include "gui/ImageView.hpp"
@@ -64,6 +65,8 @@ std::string describeEvent(const gui::Event& event) {
         out << "Cursor " << (enter->entered ? "entered" : "left");
     } else if (event.getIf<gui::WindowCloseEvent>()) {
         out << "Window closing";
+    } else if (event.getIf<gui::WindowRefreshEvent>()) {
+        out << "Window refresh requested";
     }
     return out.str();
 }
@@ -120,21 +123,13 @@ private:
     gui::ImageView* image_{};
 };
 
-std::filesystem::path executableDirectory(const char* argv0) {
-    std::error_code error;
-#ifdef __linux__
-    const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
-    if (!error) return executable.parent_path();
-#endif
-    return std::filesystem::absolute(argv0).parent_path();
-}
 }
 
 int main(int argc, char** argv) {
     try {
         bool logEvents = false;
         int maxFrames = 0, width = 1280, height = 720;
-        std::filesystem::path fontPath = executableDirectory(argv[0]) / "assets/fonts/NotoSans.ttf";
+        std::filesystem::path fontPath = example::executableDirectory(argv[0]) / "assets/fonts/NotoSans.ttf";
         for (int i = 1; i < argc; ++i) {
             const std::string option = argv[i];
             if (option == "--help") {
@@ -236,9 +231,19 @@ int main(int argc, char** argv) {
         });
         counter.setOnClick([&] { ++clicks; updateStatus(); });
 
-        int frames = 0;
-        while (!window.shouldClose() && (!maxFrames || frames < maxFrames)) {
-            window.pollEvents();
+        // Sleep until input arrives and draw only when the UI changed. --frames
+        // polls instead so smoke tests always finish.
+        for (int frames = 0; !window.shouldClose();) {
+            ui.layout(window.viewport());
+            if (maxFrames || ui.needsRedraw()) {
+                window.makeContextCurrent();
+                renderer.beginFrame(window.viewport()); renderer.clear(ui.theme().background);
+                ui.draw(renderer); renderer.endFrame();
+                window.swapBuffers();
+                if (maxFrames && ++frames >= maxFrames) break;
+            }
+            if (maxFrames) window.pollEvents();
+            else window.waitEvents();
             ui.layout(window.viewport());
             while (auto event = window.nextEvent()) {
                 if (logEvents) std::cout << describeEvent(*event) << '\n';
@@ -264,11 +269,6 @@ int main(int argc, char** argv) {
                 << " released=" << input.isKeyReleased(gui::Key::V);
             const auto diagnosticText = diagnostics.str();
             if (inputStatus.text() != diagnosticText) inputStatus.setText(diagnosticText);
-            if (window.shouldClose()) break;
-            window.makeContextCurrent();
-            renderer.beginFrame(window.viewport()); renderer.clear({0.07f, 0.08f, 0.11f, 1});
-            ui.layout(window.viewport()); ui.draw(renderer); renderer.endFrame();
-            window.swapBuffers(); ++frames;
         }
         return 0;
     }

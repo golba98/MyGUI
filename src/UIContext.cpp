@@ -23,6 +23,7 @@ bool UIContext::available(const Widget* widget) const noexcept {
     return true;
 }
 void UIContext::unavailable(Widget& widget) noexcept {
+    redraw_ = true;
     if (belongsTo(hovered_, widget)) { hovered_->hovered_ = false; hovered_ = nullptr; }
     if (belongsTo(focused_, widget)) {
         focused_->focused_ = false; focused_->cancelInteraction(); focused_ = nullptr;
@@ -32,6 +33,7 @@ void UIContext::unavailable(Widget& widget) noexcept {
 bool UIContext::requestFocus(Widget* widget) noexcept {
     if (widget && (!windowFocused_ || !available(widget) || !widget->focusable_)) return false;
     if (focused_ != widget) {
+        redraw_ = true;
         if (focused_) {
             if (captured_ == focused_) captured_ = nullptr;
             focused_->focused_ = false; focused_->cancelInteraction();
@@ -76,6 +78,7 @@ void UIContext::updateHover() {
         ? targetAt(*root_, mouseX_, mouseY_, root_->bounds()) : nullptr;
     if (!available(target)) target = nullptr;
     if (hovered_ != target) {
+        redraw_ = true;
         if (hovered_) hovered_->hovered_ = false;
         hovered_ = target;
         if (hovered_) hovered_->hovered_ = true;
@@ -99,7 +102,13 @@ void UIContext::reveal(Widget& widget) {
     ensureLayout();
     updateHover();
 }
-void UIContext::draw(Renderer& renderer) { ensureLayout(); updateHover(); root_->draw(renderer); }
+void UIContext::markDrawn() { ensureLayout(); updateHover(); redraw_ = false; }
+void UIContext::draw(Renderer& renderer) {
+    ensureLayout(); updateHover();
+    redraw_ = false;
+    try { root_->draw(renderer); }
+    catch (...) { redraw_ = true; throw; }
+}
 bool UIContext::handleEvent(const Event& event) {
     if (dispatching_) throw std::logic_error("Recursive UI event dispatch is not allowed");
     ensureLayout();
@@ -112,6 +121,7 @@ bool UIContext::handleEvent(const Event& event) {
     if (const auto* enter = event.getIf<CursorEnterEvent>()) {
         cursorInside_ = enter->entered; updateHover(); return false;
     }
+    if (event.getIf<WindowRefreshEvent>()) { redraw_ = true; return false; }
     if (const auto* resize = event.getIf<WindowResizeEvent>()) {
         layout({resize->logicalWidth, resize->logicalHeight, resize->width, resize->height}); return false;
     }
@@ -156,6 +166,7 @@ bool UIContext::handleEvent(const Event& event) {
     }
     dispatching_ = false;
     root_->commitMutations();
+    if (handled) redraw_ = true;
     ensureLayout(); updateHover();
     return handled;
 }

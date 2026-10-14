@@ -2,6 +2,7 @@
 #include "gui/EventQueue.hpp"
 
 #include <GLFW/glfw3.h>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 #include <algorithm>
@@ -146,6 +147,7 @@ Window::Window(int width, int height, const std::string& title) : state_{std::ma
     glfwSetWindowCloseCallback(state_->window_, &Window::windowCloseCallback);
     glfwSetWindowFocusCallback(state_->window_, &Window::focusCallback);
     glfwSetCursorEnterCallback(state_->window_, &Window::cursorEnterCallback);
+    glfwSetWindowRefreshCallback(state_->window_, &Window::refreshCallback);
 
     // Seed the cursor position; otherwise it reads 0,0 until the mouse moves.
     double cursorX{};
@@ -187,13 +189,24 @@ bool Window::shouldClose() const {
     return glfwWindowShouldClose(state_->window_);
 }
 
-void Window::pollEvents() {
+void Window::pollEvents() { processEvents(0); }
+
+void Window::waitEvents(double timeoutSeconds) {
+    if (std::isnan(timeoutSeconds)) throw std::invalid_argument("Event wait timeout must not be NaN");
+    processEvents(timeoutSeconds);
+}
+
+void Window::postEmptyEvent() { glfwPostEmptyEvent(); }
+
+void Window::processEvents(double timeoutSeconds) {
     static bool polling = false;
     if (polling) throw std::logic_error("Recursive event polling is not allowed");
     struct Guard { bool& flag; ~Guard() { flag = false; } } guard{polling};
     polling = true;
     for (auto* state : State::live()) state->input_.beginFrame();
-    glfwPollEvents();
+    if (timeoutSeconds == 0) glfwPollEvents();
+    else if (timeoutSeconds < 0 || std::isinf(timeoutSeconds)) glfwWaitEvents();
+    else glfwWaitEventsTimeout(timeoutSeconds);
     for (auto* state : State::live()) {
         if (state->pendingException_) {
             std::rethrow_exception(std::exchange(state->pendingException_, nullptr));
@@ -264,6 +277,10 @@ void Window::focusCallback(GLFWwindow* window, int focused) {
 
 void Window::cursorEnterCallback(GLFWwindow* window, int entered) {
     if (auto* self = windowFrom(window)) self->emit(Event{CursorEnterEvent{entered != 0}});
+}
+
+void Window::refreshCallback(GLFWwindow* window) {
+    if (auto* self = windowFrom(window)) self->emit(Event{WindowRefreshEvent{}});
 }
 
 void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) {

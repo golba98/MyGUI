@@ -26,7 +26,17 @@ cmake --build --preset debug
 ./build/debug/MyGUI
 ```
 
-Use the `release` preset for a Release build. Font assets are bundled and copied beside the executable, so the demo can be launched from another working directory. `--font PATH` chooses a different scalable Unicode font.
+Use the `release` preset for a Release build. Font assets are bundled and copied beside the executables, so the demo and examples can be launched from another working directory. `--font PATH` chooses a different scalable Unicode font for the demo.
+
+## Examples
+
+Small programs in `examples/` show one topic each and build next to the demo (`-DMYGUI_BUILD_EXAMPLES=OFF` skips them):
+
+- `MyGUI_hello` (`examples/hello.cpp`): a label and a button, the minimum setup.
+- `MyGUI_layout` (`examples/layout.cpp`): nested layouts, flex weights and wrapped text that reflows on resize.
+- `MyGUI_widgets` (`examples/widgets.cpp`): every built-in control inside a scroll view.
+
+`examples/common/Example.hpp` holds their shared font lookup and event loop. Each accepts `--frames N` for smoke tests. The full demo lives in `examples/demo/main.cpp` and builds as `MyGUI`.
 
 The demo provides an overlay-toggle button, a click counter, a disabled button, and clipped overlapping panels. Hover the overlay, resize the window, or press Tab/Shift+Tab to change focus and Enter/Space to activate a button. V toggles the overlay. `--log-events` logs event names, coordinates, actions, modifiers, Unicode code points, and resize sources; `--frames N` exits after N frames for smoke tests. `--width N --height N` selects the starting window size.
 
@@ -62,7 +72,7 @@ To build just the library and demo, configure with `-DBUILD_TESTING=OFF`. To sav
 
 All window operations, input feeding, UI dispatch, and drawing belong on the main thread. The library initializes GLFW for the first `gui::Window` and shuts it down after the last one. Destroying or replacing one window leaves other windows usable. Do not mix this ownership with externally managed native GLFW windows, or destroy windows inside native callbacks.
 
-Call `pollEvents()` on **one** live window once per application frame. GLFW processes events globally, so the call resets pressed/released edges and scroll offsets for every library window, then polls all of them. Held state and cursor positions persist. Movement deltas reset at the same boundary
+Call `pollEvents()` on **one** live window once per application frame. `waitEvents(timeout)` processes events the same way but sleeps until at least one arrives (a negative timeout waits indefinitely, zero polls, a positive timeout returns after that many seconds). `Window::postEmptyEvent()` wakes a waiting main thread from any thread. GLFW processes events globally, so the call resets pressed/released edges and scroll offsets for every library window, then polls all of them. Held state and cursor positions persist. Movement deltas reset at the same boundary
 and accumulate signed logical-coordinate differences across mouse movement, button,
 and scroll position samples. The first sample establishes a baseline without movement.
 Focus changes and cursor entry/leave invalidate that baseline; the next sample avoids a re-entry
@@ -98,6 +108,27 @@ while (auto event = window.nextEvent()) {
     }
 }
 ```
+
+### Drawing only when needed
+
+`UIContext::needsRedraw()` reports whether anything visible may have changed since the last `draw()`: layout, hover, focus, handled events, widget property setters, theme changes, and `WindowRefreshEvent`s, which windows emit when the platform needs their contents drawn again (for example after being uncovered). Custom widgets should call the protected `requestRedraw()` from setters that change their appearance; `invalidateLayout()` implies it. An application can wait for events and skip frames while nothing changed, so an idle window uses no CPU:
+
+```cpp
+while (!window.shouldClose()) {
+    ui.layout(window.viewport());
+    if (ui.needsRedraw()) {
+        renderer.beginFrame(window.viewport());
+        renderer.clear(ui.theme().background);
+        ui.draw(renderer);
+        renderer.endFrame();
+        window.swapBuffers();
+    }
+    window.waitEvents();
+    while (auto event = window.nextEvent()) ui.handleEvent(*event);
+}
+```
+
+Animations need a frame source: use `waitEvents(timeout)` or call `ui.requestRedraw()`. Frames drawn without `ui.draw()` can clear the flag with `markDrawn()`. The demo's input diagnostics update only when events arrive.
 
 Call `window.makeContextCurrent()` before creating, drawing with, or destroying its renderer. `setSwapInterval(1)` makes that window current and enables vsync. Use one renderer per context and declare it after its window so GPU resources are destroyed first. Font objects contain CPU resources and can be shared by renderers; glyph atlases remain owned by each renderer. Window resize callbacks update cached size/event data without changing any OpenGL viewport.
 `WindowResizeEvent::source` distinguishes `ResizeSource::Window` from

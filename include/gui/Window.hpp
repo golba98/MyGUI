@@ -33,6 +33,12 @@ public:
     bool shouldClose() const;
     // Global poll: resets input edges for all windows. Call once per app frame.
     void pollEvents();
+    // Like pollEvents(), but sleeps until at least one event arrives. A
+    // negative timeout waits indefinitely, zero polls, and a positive timeout
+    // returns after that many seconds even without events. Rejects NaN.
+    void waitEvents(double timeoutSeconds = -1);
+    // Wakes a waitEvents() call. Thread-safe while any window exists.
+    static void postEmptyEvent();
     void makeContextCurrent() const;
     void swapBuffers() const;
     // Applies to this window; also makes its context current.
@@ -86,6 +92,8 @@ private:
 
     static void focusCallback(GLFWwindow* window, int focused);
     static void cursorEnterCallback(GLFWwindow* window, int entered);
+    static void refreshCallback(GLFWwindow* window);
+    static void processEvents(double timeoutSeconds);
 
     void onFramebufferResize(int width, int height);
     void emitResize(ResizeSource source);

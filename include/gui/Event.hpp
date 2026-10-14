@@ -18,7 +18,8 @@ enum class EventType {
     WindowClosed,
     TextInput,
     WindowFocusChanged,
-    CursorEntered
+    CursorEntered,
+    WindowRefreshed
 };
 
 struct KeyEvent {
@@ -65,6 +66,8 @@ struct WindowResizeEvent {
 struct WindowCloseEvent {};
 struct WindowFocusEvent { bool focused{false}; };
 struct CursorEnterEvent { bool entered{false}; };
+// The platform needs the window contents drawn again, e.g. after exposure.
+struct WindowRefreshEvent {};
 
 // One Unicode code point from the platform's text input system, independent
 // of physical keys. This is not a UTF-8 byte or an IME composition event.
@@ -85,6 +88,7 @@ public:
     explicit Event(const TextInputEvent& event);
     explicit Event(const WindowFocusEvent& event);
     explicit Event(const CursorEnterEvent& event);
+    explicit Event(const WindowRefreshEvent& event);
 
     EventType type() const;
 
@@ -105,7 +109,8 @@ private:
         WindowCloseEvent,
         TextInputEvent,
         WindowFocusEvent,
-        CursorEnterEvent
+        CursorEnterEvent,
+        WindowRefreshEvent
     > data_;
 };
 

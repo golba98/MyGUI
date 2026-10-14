@@ -6,7 +6,10 @@
 #include <cmath>
 
 namespace gui {
-void ProgressBar::setValue(float value) noexcept { value_ = std::isnan(value) ? 0 : std::clamp(value, 0.0f, 1.0f); }
+void ProgressBar::setValue(float value) noexcept {
+    value_ = std::isnan(value) ? 0 : std::clamp(value, 0.0f, 1.0f);
+    requestRedraw();
+}
 Size ProgressBar::preferredSize() const noexcept {
     const auto preferred = Widget::preferredSize();
     return {std::max(preferred.width, 160.0f), std::max(preferred.height, 8.0f)};

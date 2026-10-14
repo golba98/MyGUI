@@ -7,6 +7,7 @@
 #include <GL/glcorearb.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <exception>
 #include <memory>
@@ -46,6 +47,7 @@ struct Callbacks {
     GLFWwindowclosefun close;
     GLFWwindowfocusfun focus;
     GLFWcursorenterfun enter;
+    GLFWwindowrefreshfun refresh;
 
     explicit Callbacks(GLFWwindow* window)
         : key{registered(window, glfwSetKeyCallback)},
@@ -57,7 +59,8 @@ struct Callbacks {
           framebuffer{registered(window, glfwSetFramebufferSizeCallback)},
           close{registered(window, glfwSetWindowCloseCallback)},
           focus{registered(window, glfwSetWindowFocusCallback)},
-          enter{registered(window, glfwSetCursorEnterCallback)} {}
+          enter{registered(window, glfwSetCursorEnterCallback)},
+          refresh{registered(window, glfwSetWindowRefreshCallback)} {}
 };
 
 gui::Event next(gui::Window& window) {
@@ -444,6 +447,36 @@ void testMoveAndExceptions(gui::Window& original, GLFWwindow* native, const Call
     check(true, "deferred exception is reported only once");
 }
 
+void testWaiting(gui::Window& window, GLFWwindow* native, const Callbacks& callbacks) {
+    drain(window);
+    callbacks.key(native, GLFW_KEY_W, 3, GLFW_PRESS, 0);
+    window.waitEvents(0);
+    check(!window.input().isKeyPressed(gui::Key::W) && window.input().isKeyDown(gui::Key::W),
+          "waitEvents(0) starts a new input frame like pollEvents");
+    callbacks.key(native, GLFW_KEY_W, 3, GLFW_RELEASE, 0);
+    drain(window);
+    const auto start = std::chrono::steady_clock::now();
+    window.waitEvents(0.05);
+    const auto waited = std::chrono::steady_clock::now() - start;
+    check(waited < std::chrono::seconds(2), "waitEvents with a timeout returns without events");
+    gui::Window::postEmptyEvent();
+    window.waitEvents();
+    check(true, "postEmptyEvent wakes an indefinite wait");
+    std::thread waker{[] { std::this_thread::sleep_for(std::chrono::milliseconds(20)); gui::Window::postEmptyEvent(); }};
+    window.waitEvents();
+    waker.join();
+    check(true, "postEmptyEvent from another thread wakes the main thread");
+    bool rejected = false;
+    try { window.waitEvents(std::nan("")); } catch (const std::invalid_argument&) { rejected = true; }
+    check(rejected, "NaN wait timeouts are rejected");
+    window.setEventCallback({});
+    callbacks.refresh(native);
+    const auto refresh = window.nextEvent();
+    check(refresh && refresh->type() == gui::EventType::WindowRefreshed && refresh->getIf<gui::WindowRefreshEvent>(),
+          "refresh callbacks become WindowRefreshed events");
+    drain(window);
+}
+
 void testClipboard(gui::Window& window) {
     auto& clipboard = window.clipboard();
 #if GLFW_VERSION_MAJOR > 3 || (GLFW_VERSION_MAJOR == 3 && GLFW_VERSION_MINOR >= 4)
@@ -487,6 +520,7 @@ int main() {
         testDeliveryModes(window, native, callbacks);
         testCallbackStorage(window, native, callbacks);
         testWindowLifetime(window, native, callbacks);
+        testWaiting(window, native, callbacks);
         testClipboard(window);
         // Leaves window moved-from; keep it last.
         testMoveAndExceptions(window, native, callbacks);

@@ -31,14 +31,26 @@ target_include_directories(MyGUI_core SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(MyGUI_core PUBLIC glfw PRIVATE OpenGL::GL Freetype::Freetype)
 mygui_warnings(MyGUI_core)
 
-add_executable(MyGUI src/main.cpp)
-target_link_libraries(MyGUI PRIVATE MyGUI_core)
-mygui_warnings(MyGUI)
-add_custom_command(TARGET MyGUI POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:MyGUI>/assets
-    COMMENT "Copying bundled font assets"
-)
+option(MYGUI_BUILD_EXAMPLES "Build the demo and examples" ON)
+if(MYGUI_BUILD_EXAMPLES)
+    # Every example shares one output directory and the assets copied into it.
+    add_custom_target(MyGUI_assets ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:MyGUI>/assets
+        COMMENT "Copying bundled font assets"
+    )
+    function(mygui_example target source)
+        add_executable(${target} ${source})
+        target_link_libraries(${target} PRIVATE MyGUI_core)
+        target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/examples/common)
+        mygui_warnings(${target})
+        add_dependencies(${target} MyGUI_assets)
+    endfunction()
+    mygui_example(MyGUI examples/demo/main.cpp)
+    mygui_example(MyGUI_hello examples/hello.cpp)
+    mygui_example(MyGUI_layout examples/layout.cpp)
+    mygui_example(MyGUI_widgets examples/widgets.cpp)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)

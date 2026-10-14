@@ -25,8 +25,9 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }} --parallel 2
       - name: Headless and OpenGL tests
         run: xvfb-run -a ctest --preset ${{ matrix.preset }}
-      - name: Demo smoke test from another directory
+      - name: Demo and example smoke tests from another directory
         run: |
-          demo="$GITHUB_WORKSPACE/build/${{ matrix.preset }}/MyGUI"
           cd /tmp
-          xvfb-run -a "$demo" --frames 3
+          for example in MyGUI MyGUI_hello MyGUI_layout MyGUI_widgets; do
+            xvfb-run -a "$GITHUB_WORKSPACE/build/${{ matrix.preset }}/$example" --frames 3
+          done

@@ -50,8 +50,10 @@ std::size_t TextField::snap(std::size_t offset) const noexcept {
     offset = std::min(offset, text_.size());
     return offset == text_.size() ? offset : previousUtf8Boundary(text_, nextUtf8Boundary(text_, offset));
 }
-void TextField::setCaret(std::size_t offset) noexcept { anchor_ = caret_ = snap(offset); }
-void TextField::setSelection(std::size_t anchor, std::size_t caret) noexcept { anchor_ = snap(anchor); caret_ = snap(caret); }
+void TextField::setCaret(std::size_t offset) noexcept { anchor_ = caret_ = snap(offset); requestRedraw(); }
+void TextField::setSelection(std::size_t anchor, std::size_t caret) noexcept {
+    anchor_ = snap(anchor); caret_ = snap(caret); requestRedraw();
+}
 std::string TextField::selectedText() const {
     const auto [first, last] = selection();
     return text_.substr(first, last - first);

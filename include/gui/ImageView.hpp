@@ -18,9 +18,9 @@ public:
     explicit ImageView(std::shared_ptr<Image> image, ImageScaling scaling = ImageScaling::Fit);
     void setImage(std::shared_ptr<Image> image);
     const std::shared_ptr<Image>& image() const noexcept { return image_; }
-    void setScaling(ImageScaling scaling) noexcept { scaling_ = scaling; }
+    void setScaling(ImageScaling scaling) noexcept { scaling_ = scaling; requestRedraw(); }
     ImageScaling scaling() const noexcept { return scaling_; }
-    void setTint(Color tint) noexcept { tint_ = tint; }
+    void setTint(Color tint) noexcept { tint_ = tint; requestRedraw(); }
     Color tint() const noexcept { return tint_; }
     // Logical rect the image occupies inside the current bounds.
     Rect imageRect() const noexcept;

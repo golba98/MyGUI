@@ -334,6 +334,30 @@ void testTextField() {
     check(narrow.caret() == narrow.text().size(), "after scrolling, a click near the right edge maps through the scroll offset");
     narrow.setEnabled(false); type(ui, U"x"); check(narrow.text().back() == 's', "disabled fields ignore input");
 }
+// draw() needs OpenGL; markDrawn() clears the flag the same way without it.
+void testRedrawTracking() {
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    check(ui.needsRedraw(), "a new UI needs its first draw");
+    auto& button = ui.root().emplace<gui::Button>("b"); button.setBounds({10, 10, 100, 40});
+    auto& slider = ui.root().emplace<gui::Slider>(); slider.setBounds({10, 60, 200, 24});
+    auto& label = ui.root().emplace<gui::Label>("label"); label.setBounds({10, 100, 100, 20});
+    const auto drawn = [&] { ui.markDrawn(); return !ui.needsRedraw(); };
+    check(drawn(), "markDrawn clears the flag");
+    move(ui, 300, 150); check(!ui.needsRedraw(), "pointer movement over nothing interactive needs no redraw");
+    move(ui, 20, 20); check(ui.needsRedraw(), "hover changes need a redraw");
+    drawn(); move(ui, 25, 25); check(!ui.needsRedraw(), "moving within the hovered widget needs no redraw");
+    key(ui, gui::Key::Tab, gui::KeyAction::Press); check(ui.needsRedraw(), "focus changes need a redraw");
+    drawn(); label.setTextColor({1, 0, 0, 1}); check(ui.needsRedraw(), "visual setters request a redraw");
+    drawn(); label.setText("changed"); check(ui.needsRedraw(), "layout changes need a redraw");
+    drawn(); slider.setValue(0.5f); check(ui.needsRedraw(), "value setters request a redraw");
+    drawn(); button.setEnabled(false); check(ui.needsRedraw(), "enabling and disabling request a redraw");
+    drawn(); ui.handleEvent(gui::Event{gui::WindowRefreshEvent{}}); check(ui.needsRedraw(), "window refresh requests a redraw");
+    drawn(); ui.handleEvent(gui::Event{gui::KeyEvent{gui::Key::Q, 0, gui::KeyAction::Press, {}}});
+    check(!ui.needsRedraw(), "unhandled key events need no redraw");
+    drawn(); ui.setTheme(gui::Theme{}); check(ui.needsRedraw(), "theme changes need a redraw");
+    drawn(); ui.layout({500, 200, 500, 200}); check(ui.needsRedraw(), "viewport changes need a redraw");
+    gui::Label detached{"x"}; detached.setTextColor({0, 0, 0, 1}); check(true, "detached widgets can change without a UI");
+}
 struct FakeClipboard : gui::Clipboard {
     std::string contents;
     std::string text() const override { return contents; }
@@ -391,7 +415,7 @@ void testTextSelection() {
 }
 }
 int main() {
-    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); testScrollView(); testTextField(); testTextSelection(); }
+    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); testScrollView(); testTextField(); testTextSelection(); testRedrawTracking(); }
     catch (const std::exception& error) { std::fprintf(stderr, "Error: %s\n", error.what()); return 1; }
     return failures ? 1 : 0;
 }

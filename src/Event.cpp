@@ -49,6 +49,9 @@ Event::Event(const WindowFocusEvent& event)
 Event::Event(const CursorEnterEvent& event)
     : type_{EventType::CursorEntered}, data_{event} {}
 
+Event::Event(const WindowRefreshEvent& event)
+    : type_{EventType::WindowRefreshed}, data_{event} {}
+
 EventType Event::type() const {
     return type_;
 }

@@ -28,7 +28,7 @@ public:
     // are removed. Moves the caret to the end. Never calls the change callback.
     void setText(std::string_view text);
     const std::string& text() const noexcept { return text_; }
-    void setPlaceholder(std::string placeholder) { placeholder_ = std::move(placeholder); }
+    void setPlaceholder(std::string placeholder) { placeholder_ = std::move(placeholder); requestRedraw(); }
     const std::string& placeholder() const noexcept { return placeholder_; }
     void setFont(std::shared_ptr<Font> font);
     const std::shared_ptr<Font>& font() const noexcept { return font_; }
@@ -47,7 +47,7 @@ public:
     std::string selectedText() const;
     // The caret ends at caret; both offsets are clamped and snapped like setCaret.
     void setSelection(std::size_t anchor, std::size_t caret) noexcept;
-    void selectAll() noexcept { anchor_ = 0; caret_ = text_.size(); }
+    void selectAll() noexcept { anchor_ = 0; caret_ = text_.size(); requestRedraw(); }
     bool dragging() const noexcept { return dragging_; }
     // Called after every user edit with the new text.
     void setOnChange(std::function<void(const std::string&)> callback) { onChange_ = std::move(callback); }
