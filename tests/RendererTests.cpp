@@ -6,6 +6,8 @@
 #include "gui/Button.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Font.hpp"
+#include "gui/Image.hpp"
+#include "gui/ImageView.hpp"
 #include "gui/Renderer.hpp"
 
 #define GLFW_INCLUDE_NONE
@@ -459,6 +461,75 @@ void testAtlasGrowth(gui::Renderer& renderer, const TestGL& gl, const std::share
     expectNoGLError(gl, "glyph atlas growth");
 }
 
+void testShapes(gui::Renderer& renderer, const TestGL& gl) {
+    for (const auto scale : {1, 2}) {
+        const auto viewport = makeViewport(200, 120, 200 * scale, 120 * scale);
+        const Target target{gl, viewport.framebufferWidth, viewport.framebufferHeight};
+        renderer.beginFrame(viewport); renderer.clear(background);
+        renderer.drawRoundedRect({10, 10, 80, 60}, 20, red);
+        renderer.drawBorder({110, 10, 80, 60}, 4, green, 8);
+        renderer.drawRoundedRect({10, 80, 30, 30}, 1000, green);
+        renderer.drawRect({60, 80, 30, 30}, red);
+        renderer.endFrame();
+        const auto at = [&](float x, float y, const gui::Color& color, const char* what) {
+            expectPixel(target, static_cast<int>(x * scale), static_cast<int>(y * scale), color,
+                        std::string{what} + " (scale " + std::to_string(scale) + ")");
+        };
+        at(50, 40, red, "rounded rect fills its center");
+        at(11, 11, background, "rounded rect corner is cut away");
+        at(50, 11, red, "rounded rect edge midpoint is filled");
+        at(150, 40, background, "border leaves its interior empty");
+        at(150, 11, green, "border covers its top edge");
+        at(111, 40, green, "border covers its left edge");
+        at(111, 11, background, "rounded border corner is cut away");
+        at(25, 95, green, "radius is clamped to a circle");
+        at(11, 81, background, "clamped circle corner is empty");
+        at(60, 80, red, "plain rectangles keep sharp corners");
+        expectNoGLError(gl, "rounded shapes");
+    }
+    renderer.beginFrame(makeViewport(10, 10, 10, 10));
+    bool caught = false;
+    try { renderer.drawRoundedRect({0, 0, 5, 5}, std::nanf(""), red); } catch (const std::invalid_argument&) { caught = true; }
+    check(caught, "nonfinite corner radius is rejected");
+    renderer.endFrame();
+}
+
+void testImages(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    const auto image = gui::Image::fromPixels(2, 2, {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0});
+    const Target target{gl, 200, 100};
+    const auto viewport = makeViewport(200, 100, 200, 100);
+    renderer.beginFrame(viewport); renderer.clear(background);
+    renderer.drawImage(image, {0, 0, 100, 100});
+    renderer.drawText(font, "Text", {110, 10}, 24, {1, 1, 1, 1});
+    renderer.drawImage(image, {150, 50, 40, 40}, {1, 1, 1, 0.5f});
+    renderer.endFrame();
+    expectPixel(target, 10, 10, red, "image top-left texel is the first row");
+    expectPixel(target, 90, 10, green, "image top-right texel");
+    expectPixel(target, 10, 90, {0, 0, 1, 1}, "image bottom-left texel is the last row");
+    expectPixel(target, 90, 90, background, "transparent texels blend with the background");
+    expectPixel(target, 155, 55, {0.6f, 0.2f, 0.3f, 1}, "tint alpha multiplies image alpha");
+    bool textFound = false;
+    const auto pixels = target.pixels();
+    for (int y = 0; y < 50; ++y) for (int x = 110; x < 200; ++x) {
+        const auto* px = pixels.data() + (static_cast<std::size_t>(99 - y) * 200 + static_cast<std::size_t>(x)) * 4;
+        textFound |= px[0] > 200 && px[1] > 200 && px[2] > 200;
+    }
+    check(textFound, "glyphs still use coverage mode between images");
+    gui::ImageView view{image, gui::ImageScaling::Center};
+    view.setBounds({0, 0, 1, 1});
+    renderer.beginFrame(viewport); renderer.clear(background); view.draw(renderer); renderer.endFrame();
+    expectPixel(target, 1, 1, background, "ImageView clips a centered image to its bounds");
+    bool caught = false;
+    renderer.beginFrame(viewport); renderer.drawImage(image, {0, 0, 10, 10});
+    try { renderer.releaseImage(*image); } catch (const std::logic_error&) { caught = true; }
+    renderer.endFrame();
+    check(caught, "an image queued in the current frame cannot be released");
+    renderer.releaseImage(*image);
+    renderer.beginFrame(viewport); renderer.clear(background); renderer.drawImage(image, {0, 0, 100, 100}); renderer.endFrame();
+    expectPixel(target, 10, 10, red, "a released image is uploaded again on next use");
+    expectNoGLError(gl, "image drawing");
+}
+
 void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
     const Target target{gl, 640, 360};
     const auto viewport = makeViewport(640, 360, 640, 360);
@@ -504,6 +575,8 @@ int main() {
         testUnpackState(renderer, gl, font);
         testText(renderer, gl, font);
         testAtlasGrowth(renderer, gl, font);
+        testShapes(renderer, gl);
+        testImages(renderer, gl, font);
         testWidgetRendering(renderer, gl, font);
     }
     catch (const std::exception& error) {

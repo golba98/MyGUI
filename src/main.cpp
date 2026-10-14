@@ -1,9 +1,11 @@
 #include "gui/Button.hpp"
+#include "gui/ImageView.hpp"
 #include "gui/Renderer.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Window.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -11,6 +13,7 @@
 #include <sstream>
 #include <string>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 const char* actionName(gui::KeyAction action) {
@@ -63,10 +66,24 @@ std::string describeEvent(const gui::Event& event) {
 class HoverPanel : public gui::Panel {
 public:
     void draw(gui::Renderer& renderer) const override {
-        if (visible()) renderer.drawRect(bounds(), hovered()
-            ? gui::Color{1.0f, 0.55f, 0.25f, 0.6f} : backgroundColor());
+        if (!visible()) return;
+        renderer.drawRoundedRect(bounds(), 18, hovered() ? gui::Color{1.0f, 0.55f, 0.25f, 0.6f} : backgroundColor());
+        renderer.drawBorder(bounds(), 2, {1, 1, 1, 0.35f}, 18);
     }
 };
+
+// Generated in code so the demo needs no image asset.
+std::shared_ptr<gui::Image> gradientImage() {
+    constexpr int size = 96;
+    std::vector<std::uint8_t> pixels;
+    pixels.reserve(size * size * 4);
+    for (int y = 0; y < size; ++y) for (int x = 0; x < size; ++x) {
+        const bool check = (x / 12 + y / 12) % 2 == 0;
+        pixels.insert(pixels.end(), {static_cast<std::uint8_t>(x * 255 / size), static_cast<std::uint8_t>(y * 255 / size),
+                                     static_cast<std::uint8_t>(check ? 230 : 160), 255});
+    }
+    return gui::Image::fromPixels(size, size, std::move(pixels));
+}
 
 // Custom containers can arrange absolute artwork relative to their content area.
 class Gallery : public gui::Container {
@@ -80,6 +97,7 @@ public:
         overlay_ = &emplace<HoverPanel>();
         overlay_->setBackgroundColor({0.90f, 0.25f, 0.35f, 0.55f});
         caption_ = &emplace<gui::Label>("Clipped layers · hover the overlay", font);
+        image_ = &emplace<gui::ImageView>(gradientImage());
     }
     gui::Panel& overlay() noexcept { return *overlay_; }
     void arrange() override {
@@ -88,11 +106,13 @@ public:
         base_->setBounds({b.x + 12, b.y + 60, std::max(100.0f, b.width - 80), std::max(80.0f, b.height - 80)});
         overlay_->setBounds({b.x + 100, b.y + 100, 340, 180});
         caption_->setBounds({b.x, b.y, b.width, 32});
+        image_->setBounds({b.x + b.width - 108, b.y + 40, 96, 96});
     }
 private:
     gui::Panel* base_{};
     HoverPanel* overlay_{};
     gui::Label* caption_{};
+    gui::ImageView* image_{};
 };
 
 std::filesystem::path executableDirectory(const char* argv0) {

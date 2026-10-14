@@ -20,9 +20,12 @@ endfunction()
 add_library(MyGUI_core STATIC
     src/Window.cpp src/Event.cpp src/Input.cpp src/Renderer.cpp
     src/Widget.cpp src/Panel.cpp src/Container.cpp src/UIContext.cpp
-    src/Font.cpp src/Label.cpp src/Button.cpp src/gl/Functions.cpp
+    src/Font.cpp src/Label.cpp src/Button.cpp src/Image.cpp src/ImageView.cpp
+    src/gl/Functions.cpp
 )
 target_include_directories(MyGUI_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+# Vendored decoder: private, and SYSTEM so its warnings stay out of ours.
+target_include_directories(MyGUI_core SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 target_link_libraries(MyGUI_core PUBLIC glfw PRIVATE OpenGL::GL Freetype::Freetype)
 mygui_warnings(MyGUI_core)
 
@@ -49,6 +52,7 @@ if(BUILD_TESTING)
     mygui_test(MyGUI_window_tests tests/WindowEventTests.cpp WindowEventTests)
     mygui_test(MyGUI_ui_tests tests/UIContextTests.cpp UIContextTests)
     mygui_test(MyGUI_font_tests tests/FontTests.cpp FontTests)
+    mygui_test(MyGUI_image_tests tests/ImageTests.cpp ImageTests)
 
     # This target has no GLFW, FreeType, OpenGL, or display dependency.
     add_executable(MyGUI_input_tests tests/InputEventTests.cpp src/Event.cpp src/Input.cpp)
@@ -56,5 +60,5 @@ if(BUILD_TESTING)
     mygui_warnings(MyGUI_input_tests)
     add_test(NAME InputEventTests COMMAND MyGUI_input_tests)
     set_tests_properties(RendererTests WindowEventTests PROPERTIES LABELS "display")
-    set_tests_properties(InputEventTests UIContextTests FontTests PROPERTIES LABELS "headless")
+    set_tests_properties(InputEventTests UIContextTests FontTests ImageTests PROPERTIES LABELS "headless")
 endif()

@@ -48,7 +48,7 @@ sudo apt-get install xvfb xauth
 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --preset debug
 ```
 
-Input, widget, layout, and font tests run without a display:
+Input, widget, layout, font, and image tests run without a display:
 
 ```sh
 ctest --preset debug -L headless
@@ -106,7 +106,13 @@ latest logical and framebuffer dimensions. Framebuffer callbacks also query the 
 logical dimensions because some backends can omit a logical-size callback when a
 hidden window is resized. `viewport()` returns the same cached snapshot; `Renderer::beginFrame()` sets the viewport.
 
-The renderer manages its drawing state rather than restoring another graphics engine's bindings. Frames use `beginFrame`, `clear`, draw calls, and `endFrame`. Clearing discards earlier queued drawing and clears the whole framebuffer, regardless of the active clip. Clip pushes intersect their parents; pops must balance before `endFrame`. A new frame resets the clip stack. Drawing uses logical coordinates, while scissor rectangles and glyph rasterization account for independent framebuffer X/Y scales.
+The renderer manages its drawing state rather than restoring another graphics engine's bindings. Frames use `beginFrame`, `clear`, draw calls, and `endFrame`. Besides `drawRect` and `drawText`, `drawRoundedRect` and `drawBorder` render anti-aliased rounded shapes (radii are clamped to half the shorter side; borders are drawn inside their rectangle), and `drawImage` stretches a `gui::Image` over a rectangle, multiplied by a tint. Clearing discards earlier queued drawing and clears the whole framebuffer, regardless of the active clip. Clip pushes intersect their parents; pops must balance before `endFrame`. A new frame resets the clip stack. Drawing uses logical coordinates, while scissor rectangles and glyph rasterization account for independent framebuffer X/Y scales.
+
+## Images
+
+`gui::Image` holds immutable straight-alpha RGBA8 pixels with the top row first. `Image::load(path)` and `Image::decode(bytes)` read PNG and JPEG through a vendored copy of [stb_image](third_party/stb/SOURCE.md), compiled privately into the library; `Image::fromPixels(width, height, rgba)` wraps pixels you generate. Dimensions are limited to 16384. Like fonts, images are CPU resources that can be shared by renderers. Each renderer uploads an image on first use and keeps its texture until `releaseImage()` or the renderer's destruction; releasing an image still queued in the current frame is rejected.
+
+`gui::ImageView` displays an image with `ImageScaling::Fit` (the default, keeps the aspect ratio), `Stretch`, or `Center` (natural size, clipped to the widget). Its preferred size is the image size.
 
 ## Widget ownership and layout
 
