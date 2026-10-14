@@ -4,6 +4,9 @@
 
 #include "gui/Panel.hpp"
 #include "gui/Button.hpp"
+#include "gui/Checkbox.hpp"
+#include "gui/ProgressBar.hpp"
+#include "gui/Slider.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Font.hpp"
 #include "gui/Image.hpp"
@@ -540,10 +543,24 @@ void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::s
     auto& row = root.emplace<gui::Container>(); row.setLayout(gui::Layout::Horizontal); row.setSpacing(12); row.setBackgroundColor({0, 0, 0, 0});
     auto& normal = row.emplace<gui::Button>("Click me", font);
     auto& disabled = row.emplace<gui::Button>("Disabled", font); disabled.setEnabled(false);
+    auto& controls = root.emplace<gui::Container>(); controls.setLayout(gui::Layout::Horizontal); controls.setSpacing(16); controls.setBackgroundColor({0, 0, 0, 0});
+    auto& check = controls.emplace<gui::Checkbox>("Checked", font, true);
+    controls.emplace<gui::Switch>("Switch", font, true);
+    auto& slider = controls.emplace<gui::Slider>(0.0f, 10.0f, 7.0f); slider.setFlex(1);
+    auto& progress = root.emplace<gui::ProgressBar>(0.25f);
     ui.layout(viewport); ui.requestFocus(&normal);
     renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
     expectPixel(target, static_cast<int>(disabled.bounds().x + 3), static_cast<int>(disabled.bounds().y + 3), disabled.style().disabled, "disabled button uses its style");
-    expectPixel(target, static_cast<int>(std::ceil(normal.bounds().x)), static_cast<int>(std::ceil(normal.bounds().y)), normal.style().focus, "focused button displays a focus border");
+    expectPixel(target, static_cast<int>(normal.bounds().x + normal.bounds().width / 2), static_cast<int>(std::ceil(normal.bounds().y)), normal.style().focus, "focused button displays a focus border");
+    const gui::Theme theme;
+    const auto& pb = progress.bounds();
+    expectPixel(target, static_cast<int>(pb.x + pb.width * 0.2f), static_cast<int>(pb.y + pb.height / 2), theme.fill, "progress fill covers its value");
+    expectPixel(target, static_cast<int>(pb.x + pb.width * 0.6f), static_cast<int>(pb.y + pb.height / 2), theme.track, "progress track covers the remainder");
+    const auto& cb = check.bounds();
+    expectPixel(target, static_cast<int>(cb.x + 5), static_cast<int>(cb.y + cb.height / 2 - 5), theme.fill, "checked box is filled");
+    const auto& sb = slider.bounds();
+    expectPixel(target, static_cast<int>(sb.x + 12), static_cast<int>(sb.y + sb.height / 2), theme.fill, "slider fill starts at the left");
+    expectPixel(target, static_cast<int>(sb.x + sb.width - 10), static_cast<int>(sb.y + sb.height / 2), theme.track, "slider track continues to the right");
     expectNoGLError(gl, "widget tree rendering");
     if (const auto* filename = std::getenv("MYGUI_RENDER_SNAPSHOT")) {
         std::ofstream stream(filename, std::ios::binary);

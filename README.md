@@ -141,7 +141,15 @@ Derive from `Widget` to implement `draw(Renderer&)` and optionally `onEvent(cons
 
 Container additions/removals during dispatch are committed after the handler returns. Removal cancels interaction immediately, but leaves the object alive until dispatch finishes, making self-removing callbacks safe. Do not retain references after removal completes. Button callbacks may replace themselves; activation copies the callback before invoking it.
 
-Buttons activate on a matching left-button release inside the visible hit area, or on a matching Enter/Space release while focused. Dragging outside, focus loss, or disabling cancels activation. Keyboard repeats do not activate. Styles include normal, hovered, pressed, disabled, and focus colors.
+Buttons activate on a matching left-button release inside the visible hit area, or on a matching Enter/Space release while focused. Dragging outside, focus loss, or disabling cancels activation. Keyboard repeats do not activate. Subclasses can override the protected `activate()` hook to reuse these rules.
+
+## Controls and themes
+
+- `gui::Checkbox` follows the button activation rules: clicking anywhere on it, or Enter/Space while focused, toggles `checked()` and calls `setOnChange` before any click callback. `gui::Switch` is the same control drawn as a sliding pill. `setChecked` never notifies.
+- `gui::Slider` has a finite range, an optional step (`0` is continuous), and `setOnChange` for user changes. Pressing captures the pointer, so dragging keeps tracking the cursor outside the widget until release. Arrow keys step (repeats included; continuous sliders step by 1% of the range), PageUp/PageDown move ten steps, and Home/End jump to the ends. `setValue` clamps, snaps and ignores NaN without notifying.
+- `gui::ProgressBar` shows a value clamped to `[0, 1]` and takes no input.
+
+`gui::Theme` holds the palette, corner radius and focus-ring width the built-in widgets read while drawing. Set it with `ui.setTheme(theme)`; detached widgets use the default theme. Buttons derive their colors from the theme unless `setStyle(ButtonStyle)` overrides them; `resetStyle()` returns to the theme.
 
 ## Text support and current limits
 

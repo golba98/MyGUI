@@ -1,5 +1,8 @@
 #include "gui/Button.hpp"
+#include "gui/Checkbox.hpp"
 #include "gui/ImageView.hpp"
+#include "gui/ProgressBar.hpp"
+#include "gui/Slider.hpp"
 #include "gui/Renderer.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Window.hpp"
@@ -170,8 +173,10 @@ int main(int argc, char** argv) {
         auto& toggle = sidebar.emplace<gui::Button>("Toggle overlay", font);
         auto& counter = sidebar.emplace<gui::Button>("Count a click", font);
         auto& disabled = sidebar.emplace<gui::Button>("Disabled button", font); disabled.setEnabled(false);
+        auto& overlayBox = sidebar.emplace<gui::Checkbox>("Show overlay", font, true);
+        auto& warmTheme = sidebar.emplace<gui::Switch>("Warm accent", font);
         auto& spacer = sidebar.emplace<gui::Panel>(); spacer.setFlex(1); spacer.setBackgroundColor(sidebar.backgroundColor());
-        auto& instructions = sidebar.emplace<gui::Label>("Tab / Shift+Tab: focus\nEnter / Space: activate\nV: toggle overlay", font); instructions.setFontSize(12);
+        auto& instructions = sidebar.emplace<gui::Label>("Tab / Shift+Tab: focus\nEnter / Space: activate\nArrows: adjust slider\nV: toggle overlay", font); instructions.setFontSize(12);
 
         auto& content = root.emplace<gui::Container>();
         content.setLayout(gui::Layout::Vertical); content.setPadding({24, 24, 24, 24}); content.setSpacing(16);
@@ -180,6 +185,12 @@ int main(int argc, char** argv) {
         auto& heading = content.emplace<gui::Label>("A foundation for interactive UI", font); heading.setFontSize(28);
         auto& description = content.emplace<gui::Label>("Owned widgets, automatic layout, keyboard focus, and HiDPI text.", font); description.setFontSize(14);
         auto& gallery = content.emplace<Gallery>(font);
+        auto& sliderRow = content.emplace<gui::Container>();
+        sliderRow.setLayout(gui::Layout::Horizontal); sliderRow.setSpacing(16); sliderRow.setBackgroundColor({0, 0, 0, 0});
+        auto& sliderLabel = sliderRow.emplace<gui::Label>("Progress: 40%", font); sliderLabel.setPreferredSize({130, 0});
+        sliderLabel.setAlignment(gui::HorizontalAlign::Left, gui::VerticalAlign::Center);
+        auto& slider = sliderRow.emplace<gui::Slider>(0.0f, 100.0f, 40.0f); slider.setStep(1); slider.setFlex(1);
+        auto& progress = content.emplace<gui::ProgressBar>(0.4f);
         auto& status = content.emplace<gui::Label>("Clicks: 0 · Overlay visible", font); status.setFontSize(15);
         auto& inputStatus = content.emplace<gui::Label>("", font); inputStatus.setFontSize(12);
         auto& lastTransition = content.emplace<gui::Label>("Last input: none", font); lastTransition.setFontSize(12);
@@ -187,8 +198,25 @@ int main(int argc, char** argv) {
         const auto updateStatus = [&] {
             status.setText("Clicks: " + std::to_string(clicks) + (gallery.overlay().visible() ? " · Overlay visible" : " · Overlay hidden"));
         };
-        const auto toggleOverlay = [&] { gallery.overlay().setVisible(!gallery.overlay().visible()); updateStatus(); };
+        const auto setOverlay = [&](bool visible) {
+            gallery.overlay().setVisible(visible); overlayBox.setChecked(visible); updateStatus();
+        };
+        const auto toggleOverlay = [&] { setOverlay(!gallery.overlay().visible()); };
         toggle.setOnClick(toggleOverlay);
+        overlayBox.setOnChange(setOverlay);
+        warmTheme.setOnChange([&](bool warm) {
+            gui::Theme theme;
+            if (warm) {
+                theme.accent = {0.55f, 0.27f, 0.12f, 1}; theme.accentHovered = {0.70f, 0.36f, 0.16f, 1};
+                theme.accentPressed = {0.42f, 0.20f, 0.08f, 1}; theme.fill = {0.98f, 0.62f, 0.30f, 1};
+                theme.focus = {1.0f, 0.82f, 0.55f, 1};
+            }
+            ui.setTheme(theme);
+        });
+        slider.setOnChange([&](float value) {
+            progress.setValue(value / 100);
+            sliderLabel.setText("Progress: " + std::to_string(static_cast<int>(value)) + "%");
+        });
         counter.setOnClick([&] { ++clicks; updateStatus(); });
 
         int frames = 0;

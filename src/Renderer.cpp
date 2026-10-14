@@ -370,7 +370,17 @@ void Renderer::popClip() {
 }
 void Renderer::queueQuad(const Rect& rect, const Color& color, unsigned int texture, const Rect& uv,
                          Mode mode, Shape shape) {
-    if (rect.empty() || (!clips_.empty() && clips_.back().empty())) return;
+    if (rect.empty()) return;
+    const float right = rect.x + rect.width, bottom = rect.y + rect.height;
+    const float u1 = uv.x + uv.width, v1 = uv.y + uv.height;
+    const float hw = rect.width / 2, hh = rect.height / 2;
+    queueCorners({{{rect.x, rect.y}, {-hw, -hh}, {uv.x, uv.y}}, {{right, rect.y}, {hw, -hh}, {u1, uv.y}},
+                  {{right, bottom}, {hw, hh}, {u1, v1}}, {{rect.x, bottom}, {-hw, hh}, {uv.x, v1}}},
+                 color, texture, mode, {hw, hh}, shape);
+}
+void Renderer::queueCorners(const Corner (&corners)[4], const Color& color, unsigned int texture, Mode mode,
+                            Size half, Shape shape) {
+    if (!clips_.empty() && clips_.back().empty()) return;
     const auto clip = clips_.empty() ? std::optional<Rect>{} : clips_.back();
     const bool merge = !commands_.empty() && commands_.back().texture == texture
         && commands_.back().mode == mode && commands_.back().clip == clip;
@@ -381,19 +391,13 @@ void Renderer::queueQuad(const Rect& rect, const Color& color, unsigned int text
     if (vertices_.size() + verticesPerRect > vertices_.capacity())
         vertices_.reserve(std::max(vertices_.size() + verticesPerRect, vertices_.capacity() * 2));
     if (!merge) commands_.push_back({vertices_.size(), 0, texture, mode, clip});
-    const float right = rect.x + rect.width, bottom = rect.y + rect.height;
-    const float u1 = uv.x + uv.width, v1 = uv.y + uv.height;
-    const float hw = rect.width / 2, hh = rect.height / 2;
-    const float radius = std::min(shape.radius, std::min(hw, hh)), border = std::min(shape.border, std::min(hw, hh));
-    const auto vertex = [&](float x, float y, float u, float v) {
-        return Vertex{x, y, color, u, v, x - rect.x - hw, y - rect.y - hh, hw, hh, radius, border};
+    const float limit = std::min(half.width, half.height);
+    const float radius = std::min(shape.radius, limit), border = std::min(shape.border, limit);
+    const auto vertex = [&](const Corner& c) {
+        return Vertex{c.position.x, c.position.y, color, c.uv.x, c.uv.y, c.local.x, c.local.y,
+                      half.width, half.height, radius, border};
     };
-    vertices_.push_back(vertex(rect.x, rect.y, uv.x, uv.y));
-    vertices_.push_back(vertex(right, rect.y, u1, uv.y));
-    vertices_.push_back(vertex(right, bottom, u1, v1));
-    vertices_.push_back(vertex(rect.x, rect.y, uv.x, uv.y));
-    vertices_.push_back(vertex(right, bottom, u1, v1));
-    vertices_.push_back(vertex(rect.x, bottom, uv.x, v1));
+    for (const int i : {0, 1, 2, 0, 2, 3}) vertices_.push_back(vertex(corners[i]));
     commands_.back().count += verticesPerRect;
 }
 void Renderer::drawRect(const Rect& rect, const Color& color) {
@@ -413,6 +417,23 @@ void Renderer::drawBorder(const Rect& rect, float width, const Color& color, flo
         || !std::isfinite(rect.y + rect.height)) throw std::invalid_argument("Rectangle must contain finite coordinates");
     if (width <= 0) return;
     queueQuad(rect, color, 0, {}, Mode::Solid, {nonnegative(radius), width});
+}
+void Renderer::drawLine(Point from, Point to, float width, const Color& color) {
+    if (!std::isfinite(from.x) || !std::isfinite(from.y) || !std::isfinite(to.x) || !std::isfinite(to.y)
+        || !std::isfinite(width)) throw std::invalid_argument("Line must contain finite coordinates and width");
+    if (width <= 0) return;
+    const float dx = to.x - from.x, dy = to.y - from.y, length = std::hypot(dx, dy);
+    // A degenerate segment is a dot; any direction works.
+    const float ux = length > 0 ? dx / length : 1, uy = length > 0 ? dy / length : 0;
+    const float r = width / 2, hl = length / 2 + r;
+    // Rotated capsule: extend by the cap radius along the segment and to both sides.
+    const Point center{(from.x + to.x) / 2, (from.y + to.y) / 2};
+    const auto at = [&](float along, float across) {
+        return Point{center.x + ux * along - uy * across, center.y + uy * along + ux * across};
+    };
+    queueCorners({{at(-hl, -r), {-hl, -r}, {}}, {at(hl, -r), {hl, -r}, {}},
+                  {at(hl, r), {hl, r}, {}}, {at(-hl, r), {-hl, r}, {}}},
+                 color, 0, Mode::Solid, {hl, r}, {r, 0});
 }
 void Renderer::drawImage(const std::shared_ptr<Image>& image, const Rect& dest, const Color& tint) {
     if (!image) throw std::invalid_argument("drawImage requires an image");

@@ -26,9 +26,9 @@ Size Label::preferredSize() const noexcept {
     const auto preferred = Widget::preferredSize();
     return {std::max(preferred.width, metrics_.width), std::max(preferred.height, metrics_.height)};
 }
-void Label::drawText(Renderer& renderer, Color color) const {
-    if (!font_ || text_.empty() || bounds().empty()) return;
-    const auto& b = bounds();
+void Label::drawText(Renderer& renderer, Color color, const Rect& area) const {
+    if (!font_ || text_.empty() || area.empty()) return;
+    const auto& b = area;
     float x = b.x, y = b.y;
     if (horizontal_ == HorizontalAlign::Center) x += (b.width - metrics_.width) / 2;
     else if (horizontal_ == HorizontalAlign::Right) x += b.width - metrics_.width;

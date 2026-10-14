@@ -1,5 +1,8 @@
 // These tests never create a window or an OpenGL context.
 #include "gui/Button.hpp"
+#include "gui/Checkbox.hpp"
+#include "gui/ProgressBar.hpp"
+#include "gui/Slider.hpp"
 #include "gui/UIContext.hpp"
 
 #include <cmath>
@@ -140,9 +143,75 @@ void testTreeMutations() {
     gui::Button copied = copySource;
     check(!copied.parent() && !copied.hovered() && !copied.focused() && !copied.pressed(), "widget copies never copy attachment or interaction state");
 }
+void testThemeAndCheckbox() {
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    auto& box = ui.root().emplace<gui::Checkbox>("Box"); box.setBounds({10, 10, 120, 24});
+    auto& button = ui.root().emplace<gui::Button>("Button"); button.setBounds({10, 60, 100, 40});
+    gui::Button detached{"detached"};
+    check(detached.style().normal.r == gui::Theme{}.accent.r, "detached widgets fall back to the default theme");
+    gui::Theme theme; theme.accent = {0.5f, 0.1f, 0.1f, 1}; theme.cornerRadius = 2;
+    ui.setTheme(theme);
+    check(button.style().normal.r == 0.5f && button.style().cornerRadius == 2, "button style follows the UI theme");
+    gui::ButtonStyle custom; custom.normal = {0, 0, 1, 1};
+    button.setStyle(custom); ui.setTheme(gui::Theme{});
+    check(button.style().normal.b == 1, "a custom button style overrides the theme");
+    button.resetStyle(); check(button.style().normal.r == gui::Theme{}.accent.r, "resetStyle returns to the theme");
+
+    std::vector<bool> changes; int clicks = 0;
+    box.setOnChange([&](bool checked) { changes.push_back(checked); });
+    box.setOnClick([&] { ++clicks; });
+    click(ui, 100, 20);
+    check(box.checked() && changes == std::vector<bool>{true} && clicks == 1, "clicking the label toggles and notifies once");
+    key(ui, gui::Key::Space, gui::KeyAction::Press); key(ui, gui::Key::Space, gui::KeyAction::Repeat);
+    key(ui, gui::Key::Space, gui::KeyAction::Release);
+    check(!box.checked() && changes.size() == 2, "Space toggles on release and ignores repeats");
+    mouse(ui, 20, 20, gui::ButtonAction::Press); move(ui, 300, 150); mouse(ui, 300, 150, gui::ButtonAction::Release);
+    check(!box.checked() && changes.size() == 2, "releasing outside cancels the toggle");
+    box.setChecked(true); check(box.checked() && changes.size() == 2, "programmatic changes do not notify");
+    box.setEnabled(false); click(ui, 20, 20); check(box.checked(), "disabled checkboxes ignore clicks");
+    gui::Switch toggle{"Switch", nullptr, true};
+    check(toggle.checked() && toggle.preferredSize().width > gui::Checkbox{}.preferredSize().width,
+          "switches are checkboxes with a wider indicator");
+}
+void testSlider() {
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    auto& slider = ui.root().emplace<gui::Slider>(0.0f, 100.0f, 50.0f); slider.setBounds({10, 10, 216, 24});
+    std::vector<float> values;
+    slider.setOnChange([&](float value) { values.push_back(value); });
+    // The track runs from x = 18 to x = 218, so each logical unit is half a value unit.
+    mouse(ui, 18, 20, gui::ButtonAction::Press);
+    check(slider.dragging() && ui.capturedWidget() == &slider && slider.value() == 0, "press captures and jumps to the cursor");
+    move(ui, 118, 190); check(near(slider.value(), 50), "captured drags follow x outside the bounds");
+    move(ui, 1000, 20); check(slider.value() == 100, "drags clamp to the maximum");
+    mouse(ui, -50, 20, gui::ButtonAction::Release);
+    check(!slider.dragging() && !ui.capturedWidget() && slider.value() == 0, "release ends the drag at the final position");
+    check(values.size() == 4, "each changed value notifies once");
+    slider.setStep(10); slider.setValue(44); check(slider.value() == 40, "values snap to the step");
+    slider.setValue(std::nanf("")); check(slider.value() == 40, "NaN values are ignored");
+    ui.requestFocus(&slider); values.clear();
+    key(ui, gui::Key::Right, gui::KeyAction::Press); key(ui, gui::Key::Right, gui::KeyAction::Repeat);
+    check(slider.value() == 60 && values.size() == 2, "arrow keys step, including repeats");
+    key(ui, gui::Key::PageDown, gui::KeyAction::Press); check(slider.value() == 0, "PageDown moves ten steps and clamps");
+    key(ui, gui::Key::End, gui::KeyAction::Press); check(slider.value() == 100, "End jumps to the maximum");
+    key(ui, gui::Key::Up, gui::KeyAction::Press); check(values.size() == 4, "unchanged values do not notify");
+    slider.setRange(0, 30); check(slider.value() == 30, "narrowing the range clamps the value");
+    bool caught = false;
+    try { slider.setRange(5, 1); } catch (const std::invalid_argument&) { caught = true; }
+    check(caught, "inverted ranges are rejected");
+    caught = false;
+    try { slider.setStep(-1); } catch (const std::invalid_argument&) { caught = true; }
+    check(caught, "negative steps are rejected");
+    mouse(ui, 100, 20, gui::ButtonAction::Press); slider.setEnabled(false);
+    check(!slider.dragging() && !ui.capturedWidget(), "disabling cancels a drag");
+    mouse(ui, 50, 20, gui::ButtonAction::Press); check(!slider.dragging(), "disabled sliders ignore presses");
+    slider.setEnabled(true); mouse(ui, 100, 20, gui::ButtonAction::Press);
+    gui::Slider copy = slider; check(!copy.dragging() && copy.value() == slider.value(), "copies keep the value but not the drag");
+    gui::ProgressBar progress{1.5f}; check(progress.value() == 1, "progress clamps to one");
+    progress.setValue(std::nanf("")); check(progress.value() == 0, "NaN progress becomes zero");
+}
 }
 int main() {
-    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); }
+    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); }
     catch (const std::exception& error) { std::fprintf(stderr, "Error: %s\n", error.what()); return 1; }
     return failures ? 1 : 0;
 }

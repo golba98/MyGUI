@@ -29,7 +29,10 @@ public:
     void draw(Renderer& renderer) const override;
 
 protected:
-    void drawText(Renderer& renderer, Color color) const;
+    void drawText(Renderer& renderer, Color color) const { drawText(renderer, color, bounds()); }
+    // Aligns and clips the text to area instead of the bounds.
+    void drawText(Renderer& renderer, Color color, const Rect& area) const;
+    const TextMetrics& textMetrics() const noexcept { return metrics_; }
 
 private:
     std::string text_;

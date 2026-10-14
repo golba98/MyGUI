@@ -7,6 +7,7 @@ class Renderer;
 class Event;
 class Container;
 class UIContext;
+struct Theme;
 
 // Bounds remain in logical window coordinates, even inside a container.
 class Widget {
@@ -44,6 +45,8 @@ protected:
     Widget(Widget&& other) noexcept : Widget(static_cast<const Widget&>(other)) {}
     Widget& operator=(Widget&& other) noexcept { return operator=(static_cast<const Widget&>(other)); }
     void invalidateLayout() noexcept;
+    // The attached UI's theme, or the default theme while detached.
+    const Theme& theme() const noexcept;
 
 private:
     friend class Container;

@@ -58,6 +58,9 @@ public:
     // Outline drawn inside rect, width logical units thick.
     void drawBorder(const Rect& rect, float width, const Color& color, float radius = 0);
 
+    // Anti-aliased segment with round caps, width logical units thick.
+    void drawLine(Point from, Point to, float width, const Color& color);
+
     // Stretches the whole image over dest, multiplying its texels by tint.
     // The renderer uploads each image once and keeps the texture until
     // releaseImage() or destruction.
@@ -101,6 +104,11 @@ private:
     struct ImageCache;
     void queueQuad(const Rect& rect, const Color& color, unsigned int texture, const Rect& uv,
                    Mode mode = Mode::Solid, Shape shape = {});
+    // Corners run clockwise from the top-left of the shape's own frame;
+    // local positions are relative to the shape's center in that frame.
+    struct Corner { Point position, local, uv; };
+    void queueCorners(const Corner (&corners)[4], const Color& color, unsigned int texture, Mode mode,
+                      Size half, Shape shape);
     detail::GLHandle program_;
     detail::GLHandle vertexArray_;
     detail::GLHandle vertexBuffer_;
