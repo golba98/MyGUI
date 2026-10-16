@@ -2,7 +2,9 @@
 
 #include "gui/Label.hpp"
 #include "gui/Input.hpp"
+#include "gui/Theme.hpp"
 #include <functional>
+#include <optional>
 #include <utility>
 
 namespace gui {
@@ -13,6 +15,11 @@ struct ButtonStyle {
     Color disabled{0.22f, 0.24f, 0.28f, 1};
     Color disabledText{0.48f, 0.50f, 0.54f, 1};
     Color focus{0.60f, 0.80f, 1.0f, 1};
+    float cornerRadius{6};
+    static ButtonStyle fromTheme(const Theme& theme) noexcept {
+        return {theme.accent, theme.accentHovered, theme.accentPressed, theme.disabled,
+                theme.disabledText, theme.focus, theme.cornerRadius};
+    }
 };
 class Button : public Label {
 public:
@@ -21,16 +28,21 @@ public:
     Button& operator=(const Button& other);
     explicit Button(std::string text, std::shared_ptr<Font> font = nullptr);
     void setOnClick(std::function<void()> callback) { onClick_ = std::move(callback); }
-    void setStyle(ButtonStyle style) noexcept { style_ = style; }
-    const ButtonStyle& style() const noexcept { return style_; }
+    // A custom style overrides the theme until resetStyle().
+    void setStyle(ButtonStyle style) noexcept { style_ = style; requestRedraw(); }
+    void resetStyle() noexcept { style_.reset(); requestRedraw(); }
+    ButtonStyle style() const noexcept { return style_ ? *style_ : ButtonStyle::fromTheme(theme()); }
     bool pressed() const noexcept { return keyboardKey_ != Key::Unknown || (pointerPressed_ && hovered()); }
     Size preferredSize() const noexcept override;
     bool onEvent(const Event& event, UIContext& context) override;
     void cancelInteraction() noexcept override;
     void draw(Renderer& renderer) const override;
+protected:
+    // Called once per completed click or keyboard activation.
+    virtual void activate();
+
 private:
-    void activate();
-    ButtonStyle style_{};
+    std::optional<ButtonStyle> style_;
     std::function<void()> onClick_;
     bool pointerPressed_{false};
     Key keyboardKey_{Key::Unknown};

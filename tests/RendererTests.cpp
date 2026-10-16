@@ -4,14 +4,22 @@
 
 #include "gui/Panel.hpp"
 #include "gui/Button.hpp"
+#include "gui/Checkbox.hpp"
+#include "gui/ProgressBar.hpp"
+#include "gui/ScrollView.hpp"
+#include "gui/Slider.hpp"
+#include "gui/TextField.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Font.hpp"
+#include "gui/Image.hpp"
+#include "gui/ImageView.hpp"
 #include "gui/Renderer.hpp"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <GL/glcorearb.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
@@ -459,6 +467,138 @@ void testAtlasGrowth(gui::Renderer& renderer, const TestGL& gl, const std::share
     expectNoGLError(gl, "glyph atlas growth");
 }
 
+void testShapes(gui::Renderer& renderer, const TestGL& gl) {
+    for (const auto scale : {1, 2}) {
+        const auto viewport = makeViewport(200, 120, 200 * scale, 120 * scale);
+        const Target target{gl, viewport.framebufferWidth, viewport.framebufferHeight};
+        renderer.beginFrame(viewport); renderer.clear(background);
+        renderer.drawRoundedRect({10, 10, 80, 60}, 20, red);
+        renderer.drawBorder({110, 10, 80, 60}, 4, green, 8);
+        renderer.drawRoundedRect({10, 80, 30, 30}, 1000, green);
+        renderer.drawRect({60, 80, 30, 30}, red);
+        renderer.endFrame();
+        const auto at = [&](float x, float y, const gui::Color& color, const char* what) {
+            expectPixel(target, static_cast<int>(x * scale), static_cast<int>(y * scale), color,
+                        std::string{what} + " (scale " + std::to_string(scale) + ")");
+        };
+        at(50, 40, red, "rounded rect fills its center");
+        at(11, 11, background, "rounded rect corner is cut away");
+        at(50, 11, red, "rounded rect edge midpoint is filled");
+        at(150, 40, background, "border leaves its interior empty");
+        at(150, 11, green, "border covers its top edge");
+        at(111, 40, green, "border covers its left edge");
+        at(111, 11, background, "rounded border corner is cut away");
+        at(25, 95, green, "radius is clamped to a circle");
+        at(11, 81, background, "clamped circle corner is empty");
+        at(60, 80, red, "plain rectangles keep sharp corners");
+        expectNoGLError(gl, "rounded shapes");
+    }
+    renderer.beginFrame(makeViewport(10, 10, 10, 10));
+    bool caught = false;
+    try { renderer.drawRoundedRect({0, 0, 5, 5}, std::nanf(""), red); } catch (const std::invalid_argument&) { caught = true; }
+    check(caught, "nonfinite corner radius is rejected");
+    renderer.endFrame();
+}
+
+void testImages(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    const auto image = gui::Image::fromPixels(2, 2, {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 0});
+    const Target target{gl, 200, 100};
+    const auto viewport = makeViewport(200, 100, 200, 100);
+    renderer.beginFrame(viewport); renderer.clear(background);
+    renderer.drawImage(image, {0, 0, 100, 100});
+    renderer.drawText(font, "Text", {110, 10}, 24, {1, 1, 1, 1});
+    renderer.drawImage(image, {150, 50, 40, 40}, {1, 1, 1, 0.5f});
+    renderer.endFrame();
+    expectPixel(target, 10, 10, red, "image top-left texel is the first row");
+    expectPixel(target, 90, 10, green, "image top-right texel");
+    expectPixel(target, 10, 90, {0, 0, 1, 1}, "image bottom-left texel is the last row");
+    expectPixel(target, 90, 90, background, "transparent texels blend with the background");
+    expectPixel(target, 155, 55, {0.6f, 0.2f, 0.3f, 1}, "tint alpha multiplies image alpha");
+    bool textFound = false;
+    const auto pixels = target.pixels();
+    for (int y = 0; y < 50; ++y) for (int x = 110; x < 200; ++x) {
+        const auto* px = pixels.data() + (static_cast<std::size_t>(99 - y) * 200 + static_cast<std::size_t>(x)) * 4;
+        textFound |= px[0] > 200 && px[1] > 200 && px[2] > 200;
+    }
+    check(textFound, "glyphs still use coverage mode between images");
+    gui::ImageView view{image, gui::ImageScaling::Center};
+    view.setBounds({0, 0, 1, 1});
+    renderer.beginFrame(viewport); renderer.clear(background); view.draw(renderer); renderer.endFrame();
+    expectPixel(target, 1, 1, background, "ImageView clips a centered image to its bounds");
+    bool caught = false;
+    renderer.beginFrame(viewport); renderer.drawImage(image, {0, 0, 10, 10});
+    try { renderer.releaseImage(*image); } catch (const std::logic_error&) { caught = true; }
+    renderer.endFrame();
+    check(caught, "an image queued in the current frame cannot be released");
+    renderer.releaseImage(*image);
+    renderer.beginFrame(viewport); renderer.clear(background); renderer.drawImage(image, {0, 0, 100, 100}); renderer.endFrame();
+    expectPixel(target, 10, 10, red, "a released image is uploaded again on next use");
+    expectNoGLError(gl, "image drawing");
+}
+
+void testScrollViewRendering(gui::Renderer& renderer, const TestGL& gl) {
+    const Target target{gl, 200, 150};
+    const auto viewport = makeViewport(200, 150, 200, 150);
+    gui::UIContext ui;
+    ui.root().setBackgroundColor(background);
+    auto& view = ui.root().emplace<gui::ScrollView>(); view.setBounds({0, 0, 100, 100});
+    auto& top = view.content().emplace<gui::Panel>(); top.setPreferredSize({0, 50}); top.setBackgroundColor(green);
+    auto& rest = view.content().emplace<gui::Panel>(); rest.setPreferredSize({0, 250}); rest.setBackgroundColor(red);
+    ui.layout(viewport); view.setScrollOffset({0, 40}); ui.layout(viewport);
+    renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
+    expectPixel(target, 10, 5, green, "scrolled content starts at its offset");
+    expectPixel(target, 10, 20, red, "later content follows");
+    expectPixel(target, 10, 110, background, "content is clipped to the viewport");
+    expectPixel(target, 95, 20, gui::Theme{}.border, "the thumb is drawn in the gutter");
+    expectNoGLError(gl, "scroll view rendering");
+}
+
+void testSelectionRendering(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    const Target target{gl, 200, 60};
+    const auto viewport = makeViewport(200, 60, 200, 60);
+    gui::UIContext ui;
+    auto& field = ui.root().emplace<gui::TextField>(font, "WWWWWW"); field.setBounds({0, 0, 200, 40});
+    ui.layout(viewport); ui.requestFocus(&field); field.setSelection(0, 3);
+    renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
+    const gui::Theme theme;
+    const auto blend = [](float s, float d, float a) { return s * a + d * (1 - a); };
+    const gui::Color highlighted{blend(theme.selection.r, theme.track.r, theme.selection.a),
+                                 blend(theme.selection.g, theme.track.g, theme.selection.a),
+                                 blend(theme.selection.b, theme.track.b, theme.selection.a), 1};
+    // Sample the top of the line box, above the glyphs.
+    const int top = static_cast<int>((40 - font->measureText("", 16).lineHeight) / 2) + 1;
+    expectPixel(target, 9, top, highlighted, "the selection is highlighted behind the text");
+    expectPixel(target, 190, top, theme.track, "unselected text is not highlighted");
+    expectNoGLError(gl, "selection rendering");
+}
+
+void testLineAlignment(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
+    const Target target{gl, 300, 80};
+    const auto viewport = makeViewport(300, 80, 300, 80);
+    gui::Label label{"WWWWWWWWWW\nW", font};
+    label.setBounds({0, 0, 300, 80});
+    const float line = font->measureText("", 16).lineHeight;
+    // Leftmost lit column in each line's row band.
+    const auto leftEdge = [&](int row) {
+        const auto pixels = target.pixels();
+        int left = 300;
+        for (int y = static_cast<int>(line * static_cast<float>(row)); y < static_cast<int>(line * static_cast<float>(row + 1)); ++y)
+            for (int x = 0; x < 300; ++x)
+                if (pixels[(static_cast<std::size_t>(79 - y) * 300 + static_cast<std::size_t>(x)) * 4] > 128) left = std::min(left, x);
+        return left;
+    };
+    for (const auto align : {gui::HorizontalAlign::Center, gui::HorizontalAlign::Right}) {
+        label.setAlignment(align, gui::VerticalAlign::Top);
+        renderer.beginFrame(viewport); renderer.clear({0, 0, 0, 1}); label.draw(renderer); renderer.endFrame();
+        const float wide = font->measureText("WWWWWWWWWW", 16).width, narrow = font->measureText("W", 16).width;
+        const float expected = align == gui::HorizontalAlign::Center ? (300 - narrow) / 2 : 300 - narrow;
+        check(leftEdge(0) >= static_cast<int>((align == gui::HorizontalAlign::Center ? (300 - wide) / 2 : 300 - wide)) - 2
+              && std::abs(static_cast<float>(leftEdge(1)) - expected) < 4,
+              align == gui::HorizontalAlign::Center ? "centered labels center each line" : "right-aligned labels align each line");
+    }
+    expectNoGLError(gl, "per-line alignment");
+}
+
 void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr<gui::Font>& font) {
     const Target target{gl, 640, 360};
     const auto viewport = makeViewport(640, 360, 640, 360);
@@ -469,10 +609,40 @@ void testWidgetRendering(gui::Renderer& renderer, const TestGL& gl, const std::s
     auto& row = root.emplace<gui::Container>(); row.setLayout(gui::Layout::Horizontal); row.setSpacing(12); row.setBackgroundColor({0, 0, 0, 0});
     auto& normal = row.emplace<gui::Button>("Click me", font);
     auto& disabled = row.emplace<gui::Button>("Disabled", font); disabled.setEnabled(false);
+    auto& controls = root.emplace<gui::Container>(); controls.setLayout(gui::Layout::Horizontal); controls.setSpacing(16); controls.setBackgroundColor({0, 0, 0, 0});
+    auto& box = controls.emplace<gui::Checkbox>("Checked", font, true);
+    controls.emplace<gui::Switch>("Switch", font, true);
+    auto& slider = controls.emplace<gui::Slider>(0.0f, 10.0f, 7.0f); slider.setFlex(1);
+    auto& progress = root.emplace<gui::ProgressBar>(0.25f);
+    auto& fields = root.emplace<gui::Container>(); fields.setLayout(gui::Layout::Horizontal); fields.setSpacing(16); fields.setBackgroundColor({0, 0, 0, 0});
+    auto& field = fields.emplace<gui::TextField>(font, "Editable text"); field.setFlex(1);
+    auto& empty = fields.emplace<gui::TextField>(font); empty.setPlaceholder("Placeholder"); empty.setFlex(1);
     ui.layout(viewport); ui.requestFocus(&normal);
     renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
     expectPixel(target, static_cast<int>(disabled.bounds().x + 3), static_cast<int>(disabled.bounds().y + 3), disabled.style().disabled, "disabled button uses its style");
-    expectPixel(target, static_cast<int>(std::ceil(normal.bounds().x)), static_cast<int>(std::ceil(normal.bounds().y)), normal.style().focus, "focused button displays a focus border");
+    expectPixel(target, static_cast<int>(normal.bounds().x + normal.bounds().width / 2), static_cast<int>(std::ceil(normal.bounds().y)), normal.style().focus, "focused button displays a focus border");
+    const gui::Theme theme;
+    const auto& pb = progress.bounds();
+    expectPixel(target, static_cast<int>(pb.x + pb.width * 0.2f), static_cast<int>(pb.y + pb.height / 2), theme.fill, "progress fill covers its value");
+    expectPixel(target, static_cast<int>(pb.x + pb.width * 0.6f), static_cast<int>(pb.y + pb.height / 2), theme.track, "progress track covers the remainder");
+    const auto& cb = box.bounds();
+    expectPixel(target, static_cast<int>(cb.x + 5), static_cast<int>(cb.y + cb.height / 2 - 5), theme.fill, "checked box is filled");
+    const auto& sb = slider.bounds();
+    expectPixel(target, static_cast<int>(sb.x + 12), static_cast<int>(sb.y + sb.height / 2), theme.fill, "slider fill starts at the left");
+    expectPixel(target, static_cast<int>(sb.x + sb.width - 10), static_cast<int>(sb.y + sb.height / 2), theme.track, "slider track continues to the right");
+    const auto textInk = [&](const gui::Rect& area, float threshold) {
+        const auto pixels = target.pixels();
+        int count = 0;
+        for (int y = static_cast<int>(area.y); y < static_cast<int>(area.y + area.height); ++y)
+            for (int x = static_cast<int>(area.x + 8); x < static_cast<int>(area.x + area.width - 8); ++x) {
+                const auto* px = pixels.data() + (static_cast<std::size_t>(359 - y) * 640 + static_cast<std::size_t>(x)) * 4;
+                count += px[0] > threshold * 255;
+            }
+        return count;
+    };
+    // Muted placeholder ink stays below 0.7; regular text exceeds it.
+    check(textInk(field.bounds(), 0.7f) > 50, "text fields draw their text");
+    check(textInk(empty.bounds(), 0.5f) > 50 && textInk(empty.bounds(), 0.7f) < 5, "empty fields draw a muted placeholder");
     expectNoGLError(gl, "widget tree rendering");
     if (const auto* filename = std::getenv("MYGUI_RENDER_SNAPSHOT")) {
         std::ofstream stream(filename, std::ios::binary);
@@ -504,6 +674,11 @@ int main() {
         testUnpackState(renderer, gl, font);
         testText(renderer, gl, font);
         testAtlasGrowth(renderer, gl, font);
+        testShapes(renderer, gl);
+        testImages(renderer, gl, font);
+        testScrollViewRendering(renderer, gl);
+        testSelectionRendering(renderer, gl, font);
+        testLineAlignment(renderer, gl, font);
         testWidgetRendering(renderer, gl, font);
     }
     catch (const std::exception& error) {

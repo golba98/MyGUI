@@ -1,28 +1,18 @@
 # MyGUI usage reference
 
-See the [README](../README.md) for installation, build commands, and demo controls.
-For a complete application, see [the demo source](../src/main.cpp).
+See the [README](../README.md) for setup, examples, and CMake integration.
+The [demo source](../examples/demo/main.cpp) shows a complete application.
 
-- [Windows and resource lifetimes](#windows-and-resource-lifetimes)
-- [Widget ownership and layout](#widget-ownership-and-layout)
-- [Interaction and extending widgets](#interaction-and-extending-widgets)
-- [Text support and current limits](#text-support-and-current-limits)
-- [Test details](#test-details)
-
-## Windows and resource lifetimes
+## Windows, events, and resource lifetimes
 
 All window operations, input feeding, UI dispatch, and drawing belong on the main thread. The library initializes GLFW for the first `gui::Window` and shuts it down after the last one. Destroying or replacing one window leaves other windows usable. Do not mix this ownership with externally managed native GLFW windows, or destroy windows inside native callbacks.
 
-### Polling and input state
-
-Call `pollEvents()` on **one** live window once per application frame. GLFW processes events globally, so the call resets pressed/released edges and scroll offsets for every library window, then polls all of them. Held state and cursor positions persist. Movement deltas reset at the same boundary
+Call `pollEvents()` on **one** live window once per application frame. `waitEvents(timeout)` processes events the same way but sleeps until at least one arrives (a negative timeout waits indefinitely, zero polls, a positive timeout returns after that many seconds). `Window::postEmptyEvent()` wakes a waiting main thread from any thread. GLFW processes events globally, so the call resets pressed/released edges and scroll offsets for every library window, then polls all of them. Held state and cursor positions persist. Movement deltas reset at the same boundary
 and accumulate signed logical-coordinate differences across mouse movement, button,
 and scroll position samples. The first sample establishes a baseline without movement.
 Focus changes and cursor entry/leave invalidate that baseline; the next sample avoids a re-entry
 jump while retaining any movement already recorded in the frame. Focus loss clears
 held keys/buttons and marks release edges, without manufacturing release events. Callback exceptions are saved and rethrown at the polling boundary, never through GLFW; if several windows have pending exceptions, subsequent polls report the remaining ones. Recursive polling is rejected.
-
-### Event delivery
 
 Choose event delivery explicitly when practical:
 
@@ -54,7 +44,26 @@ while (auto event = window.nextEvent()) {
 }
 ```
 
-### Rendering and window size
+### Drawing only when needed
+
+`UIContext::needsRedraw()` reports whether anything visible may have changed since the last `draw()`: layout, hover, focus, handled events, widget property setters, theme changes, and `WindowRefreshEvent`s, which windows emit when the platform needs their contents drawn again (for example after being uncovered). Custom widgets should call the protected `requestRedraw()` from setters that change their appearance; `invalidateLayout()` implies it. An application can wait for events and skip frames while nothing changed, so an idle window uses no CPU:
+
+```cpp
+while (!window.shouldClose()) {
+    ui.layout(window.viewport());
+    if (ui.needsRedraw()) {
+        renderer.beginFrame(window.viewport());
+        renderer.clear(ui.theme().background);
+        ui.draw(renderer);
+        renderer.endFrame();
+        window.swapBuffers();
+    }
+    window.waitEvents();
+    while (auto event = window.nextEvent()) ui.handleEvent(*event);
+}
+```
+
+Animations need a frame source: use `waitEvents(timeout)` or call `ui.requestRedraw()`. Frames drawn without `ui.draw()` can clear the flag with `markDrawn()`. The demo's input diagnostics update only when events arrive.
 
 Call `window.makeContextCurrent()` before creating, drawing with, or destroying its renderer. `setSwapInterval(1)` makes that window current and enables vsync. Use one renderer per context and declare it after its window so GPU resources are destroyed first. Font objects contain CPU resources and can be shared by renderers; glyph atlases remain owned by each renderer. Window resize callbacks update cached size/event data without changing any OpenGL viewport.
 `WindowResizeEvent::source` distinguishes `ResizeSource::Window` from
@@ -63,7 +72,13 @@ latest logical and framebuffer dimensions. Framebuffer callbacks also query the 
 logical dimensions because some backends can omit a logical-size callback when a
 hidden window is resized. `viewport()` returns the same cached snapshot; `Renderer::beginFrame()` sets the viewport.
 
-The renderer manages its drawing state rather than restoring another graphics engine's bindings. Frames use `beginFrame`, `clear`, draw calls, and `endFrame`. Clearing discards earlier queued drawing and clears the whole framebuffer, regardless of the active clip. Clip pushes intersect their parents; pops must balance before `endFrame`. A new frame resets the clip stack. Drawing uses logical coordinates, while scissor rectangles and glyph rasterization account for independent framebuffer X/Y scales.
+The renderer manages its drawing state rather than restoring another graphics engine's bindings. Frames use `beginFrame`, `clear`, draw calls, and `endFrame`. Besides `drawRect` and `drawText`, `drawRoundedRect` and `drawBorder` render anti-aliased rounded shapes (radii are clamped to half the shorter side; borders are drawn inside their rectangle), and `drawImage` stretches a `gui::Image` over a rectangle, multiplied by a tint. Clearing discards earlier queued drawing and clears the whole framebuffer, regardless of the active clip. Clip pushes intersect their parents; pops must balance before `endFrame`. A new frame resets the clip stack. Drawing uses logical coordinates, while scissor rectangles and glyph rasterization account for independent framebuffer X/Y scales.
+
+## Images
+
+`gui::Image` holds immutable straight-alpha RGBA8 pixels with the top row first. `Image::load(path)` and `Image::decode(bytes)` read PNG and JPEG through a vendored copy of [stb_image](../third_party/stb/SOURCE.md), compiled privately into the library; `Image::fromPixels(width, height, rgba)` wraps pixels you generate. Dimensions are limited to 16384. Like fonts, images are CPU resources that can be shared by renderers. Each renderer uploads an image on first use and keeps its texture until `releaseImage()` or the renderer's destruction; releasing an image still queued in the current frame is rejected.
+
+`gui::ImageView` displays an image with `ImageScaling::Fit` (the default, keeps the aspect ratio), `Stretch`, or `Center` (natural size, clipped to the widget). Its preferred size is the image size.
 
 ## Widget ownership and layout
 
@@ -92,23 +107,49 @@ Derive from `Widget` to implement `draw(Renderer&)` and optionally `onEvent(cons
 
 Container additions/removals during dispatch are committed after the handler returns. Removal cancels interaction immediately, but leaves the object alive until dispatch finishes, making self-removing callbacks safe. Do not retain references after removal completes. Button callbacks may replace themselves; activation copies the callback before invoking it.
 
-Buttons activate on a matching left-button release inside the visible hit area, or on a matching Enter/Space release while focused. Dragging outside, focus loss, or disabling cancels activation. Keyboard repeats do not activate. Styles include normal, hovered, pressed, disabled, and focus colors.
+Buttons activate on a matching left-button release inside the visible hit area, or on a matching Enter/Space release while focused. Dragging outside, focus loss, or disabling cancels activation. Keyboard repeats do not activate. Subclasses can override the protected `activate()` hook to reuse these rules.
+
+## Controls and themes
+
+- `gui::Checkbox` follows the button activation rules: clicking anywhere on it, or Enter/Space while focused, toggles `checked()` and calls `setOnChange` before any click callback. `gui::Switch` is the same control drawn as a sliding pill. `setChecked` never notifies.
+- `gui::Slider` has a finite range, an optional step (`0` is continuous), and `setOnChange` for user changes. Pressing captures the pointer, so dragging keeps tracking the cursor outside the widget until release. Arrow keys step (repeats included; continuous sliders step by 1% of the range), PageUp/PageDown move ten steps, and Home/End jump to the ends. `setValue` clamps, snaps and ignores NaN without notifying.
+- `gui::ProgressBar` shows a value clamped to `[0, 1]` and takes no input.
+
+## Text entry
+
+`gui::TextField` edits a single line of UTF-8. Typing arrives as `TextInputEvent`s, so keyboard layouts and dead keys work as the platform delivers them; control characters are never inserted and `setText` strips newlines and replaces invalid UTF-8 with U+FFFD. The caret is a byte offset that always sits on a code point boundary: Left/Right move by code point, Home/End jump to the ends, Backspace/Delete remove one code point, and a click places the caret at the nearest boundary. Long text scrolls horizontally to keep the caret visible. `setOnChange` runs after every user edit (never for `setText`), and `setOnSubmit` runs when Enter is pressed. While focused, the field consumes key events without Ctrl/Alt/Super so typing cannot trigger application shortcuts, plus the editing shortcuts below; Escape, Up, Down, PageUp, PageDown and other modifier shortcuts still bubble. The caret does not blink.
+
+The selection runs from an anchor to the caret. Shift with Left/Right/Home/End or a click extends it, dragging selects with pointer capture, and Ctrl+A selects everything. Ctrl+Left/Right move by word and Ctrl+Backspace/Delete delete by word; words are separated by spaces. Typing, Backspace and Delete replace the selection. Ctrl+C, Ctrl+X and Ctrl+V (or Super on macOS) copy, cut and paste through the `gui::Clipboard` set with `ui.setClipboard(&window.clipboard())`; pasted text is cleaned like `setText`, and without a clipboard these shortcuts do nothing. `Clipboard` is a small interface, so tests and other backends can supply their own. On Wayland, the compositor only lets a window that has received input own the clipboard.
+
+`Font::caretOffsets` returns the x offset of every code point boundary, and `appendUtf8`, `sanitizeUtf8`, `nextUtf8Boundary` and `previousUtf8Boundary` are available for custom text widgets.
+
+## Scrolling
+
+`gui::ScrollView` scrolls a single `content()` container (vertical layout by default); add children to the content, not to the view. The content receives at least the viewport size and grows to its preferred size. Vertical scrolling is always available; `setHorizontalScrolling(true)` enables the horizontal axis. Scrollbars appear only when needed and occupy a gutter that content never covers, for drawing or hit-testing.
+
+The wheel scrolls the innermost view under the cursor that can still move in that direction, then bubbles to outer views. Dragging a thumb captures the pointer; clicking the track pages. PageUp/PageDown bubbling unhandled from a focused descendant scroll by one viewport. Tab traversal calls `UIContext::reveal`, which scrolls every enclosing view so the newly focused widget is visible; call it yourself after programmatic focus changes. `setScrollOffset` clamps against the latest layout. Custom containers can implement the virtual `childClip()` and `scrollIntoView()` hooks.
+
+`gui::Theme` holds the palette, corner radius and focus-ring width the built-in widgets read while drawing. Set it with `ui.setTheme(theme)`; detached widgets use the default theme. Buttons derive their colors from the theme unless `setStyle(ButtonStyle)` overrides them; `resetStyle()` returns to the theme.
 
 ## Text support and current limits
 
 Fonts are loaded through FreeType. Sizes are logical pixels in `(0, 4096]`, with scaled raster sizes capped at 4096 pixels. `measureText()` returns advance width, line height, ascent, and descent; measurement is independent of framebuffer scale. UTF-8 text supports explicit newlines and four-space tabs. Invalid UTF-8 bytes become U+FFFD; unsupported characters use U+FFFD, `?`, or the font's missing-glyph entry. Font loading and invalid sizes report exceptions.
 
+`label.setWrap(true)` breaks lines at spaces (long words split between code points) to fit the label's width, using `Font::wrapText`. Wrapped labels report their height through the virtual `Widget::heightForWidth`: vertical layouts and scroll views ask each child for its height at the final width, and containers answer for their children. A wrapped label's preferred width remains its unwrapped width, so horizontal layouts can shrink it toward its minimum. Center and right alignment apply to each line.
+
 Glyph coverage textures are cached per renderer, font, and raster size. Atlas pages remain fixed while queued commands reference them. The cache lasts for the renderer's lifetime; applications displaying many different font sizes should bound their font-size choices.
 
-This version does not include text editing, scrolling controls, automatic line wrapping, complex-script shaping, bidirectional layout, color emoji, or native accessibility integration. Labels and buttons clip text that exceeds their bounds. The bundled Noto Sans font's pinned source and SIL Open Font License are in [font source](../assets/fonts/SOURCE.md) and [SIL Open Font License](../assets/fonts/OFL.txt).
+This version does not include multi-line text editing, complex-script shaping, bidirectional layout, color emoji, or native accessibility integration. Labels and buttons clip text that exceeds their bounds. The bundled Noto Sans font's pinned source and SIL Open Font License are in [font source](../assets/fonts/SOURCE.md) and [license](../assets/fonts/OFL.txt).
 
 ## Test details
 
-CI builds Debug and Release on Ubuntu and runs every suite under Xvfb/Mesa.
+CI builds Debug and Release on Ubuntu, runs all tests under Xvfb/Mesa, smoke-tests
+the examples, and builds an installed-package consumer. Windows and macOS CI
+build everything and run headless tests.
 The input test executable has no GLFW, OpenGL, or FreeType dependency. The other
 headless suites link the library but never initialize GLFW or create a context.
 
-To build just the library and demo, disable tests when configuring:
+To build the library, demo, and examples, disable tests when configuring:
 
 ```sh
 cmake --preset debug -DBUILD_TESTING=OFF

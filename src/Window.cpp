@@ -2,6 +2,7 @@
 #include "gui/EventQueue.hpp"
 
 #include <GLFW/glfw3.h>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 #include <algorithm>
@@ -60,10 +61,26 @@ Modifiers toModifiers(int mods) {
     };
 }
 
+class SystemClipboard final : public Clipboard {
+public:
+    explicit SystemClipboard(GLFWwindow*& window) : window_{window} {}
+    std::string text() const override {
+        const char* text = window_ ? glfwGetClipboardString(window_) : nullptr;
+        return text ? text : "";
+    }
+    void setText(std::string_view text) override {
+        if (window_) glfwSetClipboardString(window_, std::string{text}.c_str());
+    }
+
+private:
+    GLFWwindow*& window_;
+};
+
 } // namespace
 
 struct Window::State {
     GLFWwindow* window_{nullptr};
+    SystemClipboard clipboard_{window_};
     int width_{0}, height_{0};
     int logicalWidth_{0}, logicalHeight_{0};
     std::shared_ptr<EventCallback> eventCallback_;
@@ -130,6 +147,7 @@ Window::Window(int width, int height, const std::string& title) : state_{std::ma
     glfwSetWindowCloseCallback(state_->window_, &Window::windowCloseCallback);
     glfwSetWindowFocusCallback(state_->window_, &Window::focusCallback);
     glfwSetCursorEnterCallback(state_->window_, &Window::cursorEnterCallback);
+    glfwSetWindowRefreshCallback(state_->window_, &Window::refreshCallback);
 
     // Seed the cursor position; otherwise it reads 0,0 until the mouse moves.
     double cursorX{};
@@ -171,13 +189,24 @@ bool Window::shouldClose() const {
     return glfwWindowShouldClose(state_->window_);
 }
 
-void Window::pollEvents() {
+void Window::pollEvents() { processEvents(0); }
+
+void Window::waitEvents(double timeoutSeconds) {
+    if (std::isnan(timeoutSeconds)) throw std::invalid_argument("Event wait timeout must not be NaN");
+    processEvents(timeoutSeconds);
+}
+
+void Window::postEmptyEvent() { glfwPostEmptyEvent(); }
+
+void Window::processEvents(double timeoutSeconds) {
     static bool polling = false;
     if (polling) throw std::logic_error("Recursive event polling is not allowed");
     struct Guard { bool& flag; ~Guard() { flag = false; } } guard{polling};
     polling = true;
     for (auto* state : State::live()) state->input_.beginFrame();
-    glfwPollEvents();
+    if (timeoutSeconds == 0) glfwPollEvents();
+    else if (timeoutSeconds < 0 || std::isinf(timeoutSeconds)) glfwWaitEvents();
+    else glfwWaitEventsTimeout(timeoutSeconds);
     for (auto* state : State::live()) {
         if (state->pendingException_) {
             std::rethrow_exception(std::exchange(state->pendingException_, nullptr));
@@ -231,6 +260,10 @@ const Input& Window::input() const {
     return state_->input_;
 }
 
+Clipboard& Window::clipboard() {
+    return state_->clipboard_;
+}
+
 void Window::setEventDelivery(EventDelivery delivery) {
     state_->delivery_ = delivery;
     if (delivery == EventDelivery::Callback) state_->events_.clear();
@@ -244,6 +277,10 @@ void Window::focusCallback(GLFWwindow* window, int focused) {
 
 void Window::cursorEnterCallback(GLFWwindow* window, int entered) {
     if (auto* self = windowFrom(window)) self->emit(Event{CursorEnterEvent{entered != 0}});
+}
+
+void Window::refreshCallback(GLFWwindow* window) {
+    if (auto* self = windowFrom(window)) self->emit(Event{WindowRefreshEvent{}});
 }
 
 void Window::framebufferSizeCallback(GLFWwindow* window, int width, int height) {

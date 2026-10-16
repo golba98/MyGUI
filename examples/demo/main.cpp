@@ -1,9 +1,17 @@
+#include "Example.hpp"
 #include "gui/Button.hpp"
+#include "gui/Checkbox.hpp"
+#include "gui/ImageView.hpp"
+#include "gui/ProgressBar.hpp"
+#include "gui/ScrollView.hpp"
+#include "gui/Slider.hpp"
+#include "gui/TextField.hpp"
 #include "gui/Renderer.hpp"
 #include "gui/UIContext.hpp"
 #include "gui/Window.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -11,6 +19,7 @@
 #include <sstream>
 #include <string>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 const char* actionName(gui::KeyAction action) {
@@ -56,6 +65,8 @@ std::string describeEvent(const gui::Event& event) {
         out << "Cursor " << (enter->entered ? "entered" : "left");
     } else if (event.getIf<gui::WindowCloseEvent>()) {
         out << "Window closing";
+    } else if (event.getIf<gui::WindowRefreshEvent>()) {
+        out << "Window refresh requested";
     }
     return out.str();
 }
@@ -63,10 +74,24 @@ std::string describeEvent(const gui::Event& event) {
 class HoverPanel : public gui::Panel {
 public:
     void draw(gui::Renderer& renderer) const override {
-        if (visible()) renderer.drawRect(bounds(), hovered()
-            ? gui::Color{1.0f, 0.55f, 0.25f, 0.6f} : backgroundColor());
+        if (!visible()) return;
+        renderer.drawRoundedRect(bounds(), 18, hovered() ? gui::Color{1.0f, 0.55f, 0.25f, 0.6f} : backgroundColor());
+        renderer.drawBorder(bounds(), 2, {1, 1, 1, 0.35f}, 18);
     }
 };
+
+// Generated in code so the demo needs no image asset.
+std::shared_ptr<gui::Image> gradientImage() {
+    constexpr int size = 96;
+    std::vector<std::uint8_t> pixels;
+    pixels.reserve(size * size * 4);
+    for (int y = 0; y < size; ++y) for (int x = 0; x < size; ++x) {
+        const bool check = (x / 12 + y / 12) % 2 == 0;
+        pixels.insert(pixels.end(), {static_cast<std::uint8_t>(x * 255 / size), static_cast<std::uint8_t>(y * 255 / size),
+                                     static_cast<std::uint8_t>(check ? 230 : 160), 255});
+    }
+    return gui::Image::fromPixels(size, size, std::move(pixels));
+}
 
 // Custom containers can arrange absolute artwork relative to their content area.
 class Gallery : public gui::Container {
@@ -80,6 +105,7 @@ public:
         overlay_ = &emplace<HoverPanel>();
         overlay_->setBackgroundColor({0.90f, 0.25f, 0.35f, 0.55f});
         caption_ = &emplace<gui::Label>("Clipped layers · hover the overlay", font);
+        image_ = &emplace<gui::ImageView>(gradientImage());
     }
     gui::Panel& overlay() noexcept { return *overlay_; }
     void arrange() override {
@@ -88,28 +114,22 @@ public:
         base_->setBounds({b.x + 12, b.y + 60, std::max(100.0f, b.width - 80), std::max(80.0f, b.height - 80)});
         overlay_->setBounds({b.x + 100, b.y + 100, 340, 180});
         caption_->setBounds({b.x, b.y, b.width, 32});
+        image_->setBounds({b.x + b.width - 108, b.y + 40, 96, 96});
     }
 private:
     gui::Panel* base_{};
     HoverPanel* overlay_{};
     gui::Label* caption_{};
+    gui::ImageView* image_{};
 };
 
-std::filesystem::path executableDirectory(const char* argv0) {
-    std::error_code error;
-#ifdef __linux__
-    const auto executable = std::filesystem::read_symlink("/proc/self/exe", error);
-    if (!error) return executable.parent_path();
-#endif
-    return std::filesystem::absolute(argv0).parent_path();
-}
 }
 
 int main(int argc, char** argv) {
     try {
         bool logEvents = false;
         int maxFrames = 0, width = 1280, height = 720;
-        std::filesystem::path fontPath = executableDirectory(argv[0]) / "assets/fonts/NotoSans.ttf";
+        std::filesystem::path fontPath = example::executableDirectory(argv[0]) / "assets/fonts/NotoSans.ttf";
         for (int i = 1; i < argc; ++i) {
             const std::string option = argv[i];
             if (option == "--help") {
@@ -137,43 +157,93 @@ int main(int argc, char** argv) {
         // GPU resources are released before the window destroys its context.
         gui::Renderer renderer{window.glProcLoader()};
         gui::UIContext ui;
+        ui.setClipboard(&window.clipboard());
         auto& root = ui.root();
         root.setLayout(gui::Layout::Horizontal); root.setPadding({24, 24, 24, 24}); root.setSpacing(20);
         root.setBackgroundColor({0.07f, 0.08f, 0.11f, 1});
 
-        auto& sidebar = root.emplace<gui::Container>();
-        sidebar.setLayout(gui::Layout::Vertical); sidebar.setPadding({20, 20, 20, 20}); sidebar.setSpacing(14);
-        sidebar.setPreferredSize({240, 0}); sidebar.setMinimumSize({180, 0});
-        sidebar.setBackgroundColor({0.13f, 0.16f, 0.21f, 1});
+        auto& sidebarView = root.emplace<gui::ScrollView>();
+        sidebarView.setPreferredSize({240, 0}); sidebarView.setMinimumSize({180, 0});
+        sidebarView.setBackgroundColor({0.13f, 0.16f, 0.21f, 1});
+        auto& sidebar = sidebarView.content();
+        sidebar.setPadding({20, 20, 20, 20}); sidebar.setSpacing(14);
         auto& brand = sidebar.emplace<gui::Label>("MyGUI", font); brand.setFontSize(26);
         auto& subtitle = sidebar.emplace<gui::Label>("C++20 · OpenGL 3.3", font); subtitle.setFontSize(13);
         auto& toggle = sidebar.emplace<gui::Button>("Toggle overlay", font);
         auto& counter = sidebar.emplace<gui::Button>("Count a click", font);
         auto& disabled = sidebar.emplace<gui::Button>("Disabled button", font); disabled.setEnabled(false);
-        auto& spacer = sidebar.emplace<gui::Panel>(); spacer.setFlex(1); spacer.setBackgroundColor(sidebar.backgroundColor());
-        auto& instructions = sidebar.emplace<gui::Label>("Tab / Shift+Tab: focus\nEnter / Space: activate\nV: toggle overlay", font); instructions.setFontSize(12);
+        auto& overlayBox = sidebar.emplace<gui::Checkbox>("Show overlay", font, true);
+        auto& warmTheme = sidebar.emplace<gui::Switch>("Warm accent", font);
+        auto& listHeading = sidebar.emplace<gui::Label>("Scrollable options", font); listHeading.setFontSize(13);
+        for (int i = 1; i <= 12; ++i) sidebar.emplace<gui::Checkbox>("Option " + std::to_string(i), font, i % 3 == 0);
+        auto& spacer = sidebar.emplace<gui::Panel>(); spacer.setFlex(1); spacer.setBackgroundColor({0, 0, 0, 0});
+        auto& instructions = sidebar.emplace<gui::Label>("Tab / Shift+Tab: focus\nEnter / Space: activate\nArrows: adjust slider\nWheel / PageUp / PageDown: scroll\nV: toggle overlay", font); instructions.setFontSize(12);
 
         auto& content = root.emplace<gui::Container>();
         content.setLayout(gui::Layout::Vertical); content.setPadding({24, 24, 24, 24}); content.setSpacing(16);
         content.setMinimumSize({220, 0}); content.setFlex(1);
         content.setBackgroundColor({0.11f, 0.13f, 0.18f, 1});
         auto& heading = content.emplace<gui::Label>("A foundation for interactive UI", font); heading.setFontSize(28);
-        auto& description = content.emplace<gui::Label>("Owned widgets, automatic layout, keyboard focus, and HiDPI text.", font); description.setFontSize(14);
+        auto& description = content.emplace<gui::Label>("Owned widgets, automatic layout, keyboard focus, HiDPI text, scrolling, "
+            "text entry and themes. This paragraph wraps to the window width; resize the window to see it reflow.", font);
+        description.setFontSize(14); description.setWrap(true);
         auto& gallery = content.emplace<Gallery>(font);
+        auto& sliderRow = content.emplace<gui::Container>();
+        sliderRow.setLayout(gui::Layout::Horizontal); sliderRow.setSpacing(16); sliderRow.setBackgroundColor({0, 0, 0, 0});
+        auto& sliderLabel = sliderRow.emplace<gui::Label>("Progress: 40%", font); sliderLabel.setPreferredSize({130, 0});
+        sliderLabel.setAlignment(gui::HorizontalAlign::Left, gui::VerticalAlign::Center);
+        auto& slider = sliderRow.emplace<gui::Slider>(0.0f, 100.0f, 40.0f); slider.setStep(1); slider.setFlex(1);
+        auto& progress = content.emplace<gui::ProgressBar>(0.4f);
+        auto& noteRow = content.emplace<gui::Container>();
+        noteRow.setLayout(gui::Layout::Horizontal); noteRow.setSpacing(12); noteRow.setBackgroundColor({0, 0, 0, 0});
+        auto& note = noteRow.emplace<gui::TextField>(font); note.setPlaceholder("Type a note and press Enter"); note.setFlex(1);
+        auto& submit = noteRow.emplace<gui::Button>("Submit", font);
         auto& status = content.emplace<gui::Label>("Clicks: 0 · Overlay visible", font); status.setFontSize(15);
         auto& inputStatus = content.emplace<gui::Label>("", font); inputStatus.setFontSize(12);
         auto& lastTransition = content.emplace<gui::Label>("Last input: none", font); lastTransition.setFontSize(12);
         int clicks = 0;
+        std::string lastNote;
         const auto updateStatus = [&] {
-            status.setText("Clicks: " + std::to_string(clicks) + (gallery.overlay().visible() ? " · Overlay visible" : " · Overlay hidden"));
+            status.setText("Clicks: " + std::to_string(clicks) + (gallery.overlay().visible() ? " · Overlay visible" : " · Overlay hidden")
+                           + (lastNote.empty() ? "" : " · Note: " + lastNote));
         };
-        const auto toggleOverlay = [&] { gallery.overlay().setVisible(!gallery.overlay().visible()); updateStatus(); };
+        const auto submitNote = [&] { lastNote = note.text(); note.setText(""); updateStatus(); };
+        note.setOnSubmit([&](const std::string&) { submitNote(); });
+        submit.setOnClick(submitNote);
+        const auto setOverlay = [&](bool visible) {
+            gallery.overlay().setVisible(visible); overlayBox.setChecked(visible); updateStatus();
+        };
+        const auto toggleOverlay = [&] { setOverlay(!gallery.overlay().visible()); };
         toggle.setOnClick(toggleOverlay);
+        overlayBox.setOnChange(setOverlay);
+        warmTheme.setOnChange([&](bool warm) {
+            gui::Theme theme;
+            if (warm) {
+                theme.accent = {0.55f, 0.27f, 0.12f, 1}; theme.accentHovered = {0.70f, 0.36f, 0.16f, 1};
+                theme.accentPressed = {0.42f, 0.20f, 0.08f, 1}; theme.fill = {0.98f, 0.62f, 0.30f, 1};
+                theme.focus = {1.0f, 0.82f, 0.55f, 1};
+            }
+            ui.setTheme(theme);
+        });
+        slider.setOnChange([&](float value) {
+            progress.setValue(value / 100);
+            sliderLabel.setText("Progress: " + std::to_string(static_cast<int>(value)) + "%");
+        });
         counter.setOnClick([&] { ++clicks; updateStatus(); });
 
-        int frames = 0;
-        while (!window.shouldClose() && (!maxFrames || frames < maxFrames)) {
-            window.pollEvents();
+        // Sleep until input arrives and draw only when the UI changed. --frames
+        // polls instead so smoke tests always finish.
+        for (int frames = 0; !window.shouldClose();) {
+            ui.layout(window.viewport());
+            if (maxFrames || ui.needsRedraw()) {
+                window.makeContextCurrent();
+                renderer.beginFrame(window.viewport()); renderer.clear(ui.theme().background);
+                ui.draw(renderer); renderer.endFrame();
+                window.swapBuffers();
+                if (maxFrames && ++frames >= maxFrames) break;
+            }
+            if (maxFrames) window.pollEvents();
+            else window.waitEvents();
             ui.layout(window.viewport());
             while (auto event = window.nextEvent()) {
                 if (logEvents) std::cout << describeEvent(*event) << '\n';
@@ -199,11 +269,6 @@ int main(int argc, char** argv) {
                 << " released=" << input.isKeyReleased(gui::Key::V);
             const auto diagnosticText = diagnostics.str();
             if (inputStatus.text() != diagnosticText) inputStatus.setText(diagnosticText);
-            if (window.shouldClose()) break;
-            window.makeContextCurrent();
-            renderer.beginFrame(window.viewport()); renderer.clear({0.07f, 0.08f, 0.11f, 1});
-            ui.layout(window.viewport()); ui.draw(renderer); renderer.endFrame();
-            window.swapBuffers(); ++frames;
         }
         return 0;
     }
