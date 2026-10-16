@@ -7,6 +7,7 @@ class Renderer;
 class Event;
 class Container;
 class UIContext;
+struct Theme;
 
 // Bounds remain in logical window coordinates, even inside a container.
 class Widget {
@@ -16,6 +17,8 @@ public:
     virtual bool onEvent(const Event&, UIContext&) { return false; }
     virtual void cancelInteraction() noexcept {}
     virtual Size preferredSize() const noexcept { return preferredSize_; }
+    // Preferred height when laid out at width; wrapped text grows as it narrows.
+    virtual float heightForWidth(float width) const { (void)width; return preferredSize().height; }
 
     void setBounds(const Rect& bounds) noexcept;
     const Rect& bounds() const noexcept { return bounds_; }
@@ -44,6 +47,10 @@ protected:
     Widget(Widget&& other) noexcept : Widget(static_cast<const Widget&>(other)) {}
     Widget& operator=(Widget&& other) noexcept { return operator=(static_cast<const Widget&>(other)); }
     void invalidateLayout() noexcept;
+    // Marks the attached UI for redrawing; call from setters that change appearance.
+    void requestRedraw() noexcept;
+    // The attached UI's theme, or the default theme while detached.
+    const Theme& theme() const noexcept;
 
 private:
     friend class Container;

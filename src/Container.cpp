@@ -86,22 +86,42 @@ Size Container::preferredSize() const noexcept {
     const auto height = (layout_ == Layout::Horizontal ? cross : main) + padding_.top + padding_.bottom;
     return {std::max(result.width, width), std::max(result.height, height)};
 }
+float Container::heightForWidth(float width) const {
+    if (layout_ == Layout::Absolute) return preferredSize().height;
+    const float inner = nonnegative(width - padding_.left - padding_.right);
+    float total = 0;
+    std::size_t count = 0;
+    for (const auto& child : children_) {
+        if (!child->visible() || child->pendingRemoval_) continue;
+        const auto minimum = child->minimumSize();
+        // Horizontal rows give each child its preferred width before shrinking or flexing.
+        const float childWidth = layout_ == Layout::Vertical ? std::max(inner, minimum.width)
+            : std::max(child->preferredSize().width, minimum.width);
+        const float height = std::max(minimum.height, child->heightForWidth(childWidth));
+        total = layout_ == Layout::Vertical ? total + height : std::max(total, height);
+        ++count;
+    }
+    if (layout_ == Layout::Vertical && count > 1) total += spacing_ * static_cast<float>(count - 1);
+    return std::max(Widget::preferredSize().height, total + padding_.top + padding_.bottom);
+}
 void Container::arrange() {
     if (layout_ != Layout::Absolute) {
         std::vector<Widget*> visible;
         std::vector<float> lengths, minimums;
         float total = 0, minTotal = 0, flexTotal = 0;
         const bool horizontal = layout_ == Layout::Horizontal;
+        const auto content = contentBounds();
         for (auto& child : children_) {
             if (!child->visible() || child->pendingRemoval_) continue;
             visible.push_back(child.get());
             const auto preferred = child->preferredSize(), minimum = child->minimumSize();
             const auto min = horizontal ? minimum.width : minimum.height;
-            const auto length = std::max(min, horizontal ? preferred.width : preferred.height);
+            // Vertical children know their final width, so their height can depend on it.
+            const auto length = std::max(min, horizontal ? preferred.width
+                : child->heightForWidth(std::max(content.width, minimum.width)));
             lengths.push_back(length); minimums.push_back(min);
             total += length; minTotal += min; flexTotal += child->flex();
         }
-        const auto content = contentBounds();
         const float space = nonnegative((horizontal ? content.width : content.height)
             - spacing_ * static_cast<float>(visible.empty() ? 0 : visible.size() - 1));
         const float extra = std::max(0.0f, space - total);
@@ -126,7 +146,7 @@ void Container::arrange() {
 void Container::draw(Renderer& renderer) const {
     if (!visible()) return;
     Panel::draw(renderer);
-    if (clipChildren_) renderer.pushClip(contentBounds());
+    if (clipChildren_) renderer.pushClip(childClip());
     try {
         for (const auto& child : children_) {
             if (child->visible() && !child->pendingRemoval_) child->draw(renderer);

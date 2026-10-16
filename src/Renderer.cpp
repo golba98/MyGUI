@@ -2,6 +2,7 @@
 
 #include "gl/Functions.hpp"
 #include "gui/Font.hpp"
+#include "gui/Image.hpp"
 
 #include <cstddef>
 #include <stdexcept>
@@ -30,31 +31,56 @@ constexpr const char* vertexShaderSource = R"(#version 330 core
 layout(location = 0) in vec2 aPosition;
 layout(location = 1) in vec4 aColor;
 layout(location = 2) in vec2 aUV;
+layout(location = 3) in vec2 aLocal;
+layout(location = 4) in vec4 aShape;
 
 uniform vec2 uLogicalSize;
 
 out vec4 vColor;
 out vec2 vUV;
+out vec2 vLocal;
+flat out vec4 vShape;
 
 void main() {
     vec2 ndc = aPosition / uLogicalSize * 2.0 - 1.0;
     gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);
     vColor = aColor;
     vUV = aUV;
+    vLocal = aLocal;
+    vShape = aShape;
 }
 )";
 
 constexpr const char* fragmentShaderSource = R"(#version 330 core
 in vec4 vColor;
 in vec2 vUV;
+in vec2 vLocal;
+flat in vec4 vShape;
 uniform sampler2D uAtlas;
-uniform bool uTextured;
+// 0: solid color, 1: glyph coverage in the red channel, 2: RGBA image.
+uniform int uMode;
 
 out vec4 fragColor;
 
+// Signed distance to a rounded box centered at the origin; negative inside.
+float roundedBox(vec2 p, vec2 halfSize, float radius) {
+    vec2 q = abs(p) - halfSize + radius;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
 void main() {
-    float coverage = uTextured ? texture(uAtlas, vUV).r : 1.0;
-    fragColor = vec4(vColor.rgb, vColor.a * coverage);
+    vec4 color = vColor;
+    if (uMode == 1) color.a *= texture(uAtlas, vUV).r;
+    else if (uMode == 2) color *= texture(uAtlas, vUV);
+    if (vShape.z > 0.0 || vShape.w > 0.0) {
+        float distance = roundedBox(vLocal, vShape.xy, vShape.z);
+        // One framebuffer pixel, in logical units, for anti-aliasing.
+        float pixel = max(fwidth(distance), 1e-4);
+        float coverage = clamp(0.5 - distance / pixel, 0.0, 1.0);
+        if (vShape.w > 0.0) coverage *= clamp(0.5 + (distance + vShape.w) / pixel, 0.0, 1.0);
+        color.a *= coverage;
+    }
+    fragColor = color;
 }
 )";
 
@@ -222,6 +248,38 @@ struct Renderer::TextCache {
     }
 };
 
+struct Renderer::ImageCache {
+    struct Entry {
+        std::shared_ptr<Image> image;
+        detail::GLHandle texture;
+    };
+    std::map<const Image*, Entry, std::less<>> entries;
+
+    unsigned int get(const std::shared_ptr<Image>& image) {
+        if (const auto it = entries.find(image.get()); it != entries.end()) return it->second.texture.get();
+        GLint maxSize{};
+        gl::GetIntegerv(GL_MAX_TEXTURE_SIZE, &maxSize);
+        if (image->width() > maxSize || image->height() > maxSize)
+            throw std::runtime_error("Image exceeds the maximum texture size");
+        GLuint id{};
+        gl::GenTextures(1, &id);
+        if (!id) throw std::runtime_error("Failed to allocate image texture");
+        detail::GLHandle texture{id, &deleteTexture};
+        const UnpackGuard unpackGuard;
+        gl::ActiveTexture(GL_TEXTURE0);
+        gl::BindTexture(GL_TEXTURE_2D, id);
+        gl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        gl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        gl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        gl::TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        gl::TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, image->width(), image->height(), 0,
+                       GL_RGBA, GL_UNSIGNED_BYTE, image->pixels().data());
+        gl::BindTexture(GL_TEXTURE_2D, 0);
+        entries.emplace(image.get(), Entry{image, std::move(texture)});
+        return id;
+    }
+};
+
 Renderer::Renderer(GLProcLoader loader) {
     gl::load(loader);
 
@@ -229,8 +287,9 @@ Renderer::Renderer(GLProcLoader loader) {
     const auto fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentShaderSource);
     program_ = linkProgram(vertexShader, fragmentShader);
     logicalSizeLocation_ = gl::GetUniformLocation(program_.get(), "uLogicalSize");
-    texturedLocation_ = gl::GetUniformLocation(program_.get(), "uTextured");
+    modeLocation_ = gl::GetUniformLocation(program_.get(), "uMode");
     textCache_ = std::make_unique<TextCache>();
+    imageCache_ = std::make_unique<ImageCache>();
     gl::UseProgram(program_.get());
     gl::Uniform1i(gl::GetUniformLocation(program_.get(), "uAtlas"), 0);
     gl::UseProgram(0);
@@ -262,6 +321,12 @@ Renderer::Renderer(GLProcLoader loader) {
     gl::EnableVertexAttribArray(2);
     gl::VertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
         reinterpret_cast<const void*>(offsetof(Vertex, u)));
+    gl::EnableVertexAttribArray(3);
+    gl::VertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+        reinterpret_cast<const void*>(offsetof(Vertex, localX)));
+    gl::EnableVertexAttribArray(4);
+    gl::VertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+        reinterpret_cast<const void*>(offsetof(Vertex, halfWidth)));
     gl::BindVertexArray(0);
     gl::BindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -303,31 +368,87 @@ void Renderer::popClip() {
     if (clips_.empty()) throw std::logic_error("Clip stack underflow");
     clips_.pop_back();
 }
-void Renderer::queueQuad(const Rect& rect, const Color& color, unsigned int texture, const Rect& uv) {
-    if (rect.empty() || (!clips_.empty() && clips_.back().empty())) return;
+void Renderer::queueQuad(const Rect& rect, const Color& color, unsigned int texture, const Rect& uv,
+                         Mode mode, Shape shape) {
+    if (rect.empty()) return;
+    const float right = rect.x + rect.width, bottom = rect.y + rect.height;
+    const float u1 = uv.x + uv.width, v1 = uv.y + uv.height;
+    const float hw = rect.width / 2, hh = rect.height / 2;
+    queueCorners({{{rect.x, rect.y}, {-hw, -hh}, {uv.x, uv.y}}, {{right, rect.y}, {hw, -hh}, {u1, uv.y}},
+                  {{right, bottom}, {hw, hh}, {u1, v1}}, {{rect.x, bottom}, {-hw, hh}, {uv.x, v1}}},
+                 color, texture, mode, {hw, hh}, shape);
+}
+void Renderer::queueCorners(const Corner (&corners)[4], const Color& color, unsigned int texture, Mode mode,
+                            Size half, Shape shape) {
+    if (!clips_.empty() && clips_.back().empty()) return;
     const auto clip = clips_.empty() ? std::optional<Rect>{} : clips_.back();
-    const bool merge = !commands_.empty() && commands_.back().texture == texture && commands_.back().clip == clip;
+    const bool merge = !commands_.empty() && commands_.back().texture == texture
+        && commands_.back().mode == mode && commands_.back().clip == clip;
     if (!merge && commands_.size() == commands_.capacity())
         commands_.reserve(std::max(commands_.size() + 1, commands_.capacity() * 2));
     if (vertices_.size() + verticesPerRect > static_cast<std::size_t>(std::numeric_limits<GLsizei>::max()))
         throw std::length_error("Too many vertices in one frame");
     if (vertices_.size() + verticesPerRect > vertices_.capacity())
         vertices_.reserve(std::max(vertices_.size() + verticesPerRect, vertices_.capacity() * 2));
-    if (!merge) commands_.push_back({vertices_.size(), 0, texture, clip});
-    const float right = rect.x + rect.width, bottom = rect.y + rect.height;
-    const float u1 = uv.x + uv.width, v1 = uv.y + uv.height;
-    vertices_.push_back({rect.x, rect.y, color, uv.x, uv.y});
-    vertices_.push_back({right, rect.y, color, u1, uv.y});
-    vertices_.push_back({right, bottom, color, u1, v1});
-    vertices_.push_back({rect.x, rect.y, color, uv.x, uv.y});
-    vertices_.push_back({right, bottom, color, u1, v1});
-    vertices_.push_back({rect.x, bottom, color, uv.x, v1});
+    if (!merge) commands_.push_back({vertices_.size(), 0, texture, mode, clip});
+    const float limit = std::min(half.width, half.height);
+    const float radius = std::min(shape.radius, limit), border = std::min(shape.border, limit);
+    const auto vertex = [&](const Corner& c) {
+        return Vertex{c.position.x, c.position.y, color, c.uv.x, c.uv.y, c.local.x, c.local.y,
+                      half.width, half.height, radius, border};
+    };
+    for (const int i : {0, 1, 2, 0, 2, 3}) vertices_.push_back(vertex(corners[i]));
     commands_.back().count += verticesPerRect;
 }
 void Renderer::drawRect(const Rect& rect, const Color& color) {
     if (!std::isfinite(rect.x) || !std::isfinite(rect.y) || !std::isfinite(rect.x + rect.width)
         || !std::isfinite(rect.y + rect.height)) throw std::invalid_argument("Rectangle must contain finite coordinates");
     queueQuad(rect, color, 0, {});
+}
+void Renderer::drawRoundedRect(const Rect& rect, float radius, const Color& color) {
+    if (!std::isfinite(radius)) throw std::invalid_argument("Corner radius must be finite");
+    if (!std::isfinite(rect.x) || !std::isfinite(rect.y) || !std::isfinite(rect.x + rect.width)
+        || !std::isfinite(rect.y + rect.height)) throw std::invalid_argument("Rectangle must contain finite coordinates");
+    queueQuad(rect, color, 0, {}, Mode::Solid, {nonnegative(radius), 0});
+}
+void Renderer::drawBorder(const Rect& rect, float width, const Color& color, float radius) {
+    if (!std::isfinite(width) || !std::isfinite(radius)) throw std::invalid_argument("Border width and radius must be finite");
+    if (!std::isfinite(rect.x) || !std::isfinite(rect.y) || !std::isfinite(rect.x + rect.width)
+        || !std::isfinite(rect.y + rect.height)) throw std::invalid_argument("Rectangle must contain finite coordinates");
+    if (width <= 0) return;
+    queueQuad(rect, color, 0, {}, Mode::Solid, {nonnegative(radius), width});
+}
+void Renderer::drawLine(Point from, Point to, float width, const Color& color) {
+    if (!std::isfinite(from.x) || !std::isfinite(from.y) || !std::isfinite(to.x) || !std::isfinite(to.y)
+        || !std::isfinite(width)) throw std::invalid_argument("Line must contain finite coordinates and width");
+    if (width <= 0) return;
+    const float dx = to.x - from.x, dy = to.y - from.y, length = std::hypot(dx, dy);
+    // A degenerate segment is a dot; any direction works.
+    const float ux = length > 0 ? dx / length : 1, uy = length > 0 ? dy / length : 0;
+    const float r = width / 2, hl = length / 2 + r;
+    // Rotated capsule: extend by the cap radius along the segment and to both sides.
+    const Point center{(from.x + to.x) / 2, (from.y + to.y) / 2};
+    const auto at = [&](float along, float across) {
+        return Point{center.x + ux * along - uy * across, center.y + uy * along + ux * across};
+    };
+    queueCorners({{at(-hl, -r), {-hl, -r}, {}}, {at(hl, -r), {hl, -r}, {}},
+                  {at(hl, r), {hl, r}, {}}, {at(-hl, r), {-hl, r}, {}}},
+                 color, 0, Mode::Solid, {hl, r}, {r, 0});
+}
+void Renderer::drawImage(const std::shared_ptr<Image>& image, const Rect& dest, const Color& tint) {
+    if (!image) throw std::invalid_argument("drawImage requires an image");
+    if (!std::isfinite(dest.x) || !std::isfinite(dest.y) || !std::isfinite(dest.x + dest.width)
+        || !std::isfinite(dest.y + dest.height)) throw std::invalid_argument("Image destination must contain finite coordinates");
+    if (dest.empty() || (!clips_.empty() && clips_.back().empty())) return;
+    queueQuad(dest, tint, imageCache_->get(image), {0, 0, 1, 1}, Mode::Image);
+}
+void Renderer::releaseImage(const Image& image) {
+    const auto it = imageCache_->entries.find(&image);
+    if (it == imageCache_->entries.end()) return;
+    const auto texture = it->second.texture.get();
+    if (std::any_of(commands_.begin(), commands_.end(), [texture](const Command& c) { return c.texture == texture; }))
+        throw std::logic_error("Cannot release an image queued in the current frame");
+    imageCache_->entries.erase(it);
 }
 void Renderer::drawText(const std::shared_ptr<Font>& font, std::string_view text,
                         Point origin, float logicalSize, const Color& color) {
@@ -349,7 +470,7 @@ void Renderer::drawText(const std::shared_ptr<Font>& font, std::string_view text
         if (!glyph.texture) continue;
         queueQuad({origin.x + positionedGlyph.x + glyph.left / scaleX,
                    origin.y + positionedGlyph.baseline - glyph.top / scaleY,
-                   glyph.width / scaleX, glyph.height / scaleY}, color, glyph.texture, glyph.uv);
+                   glyph.width / scaleX, glyph.height / scaleY}, color, glyph.texture, glyph.uv, Mode::Glyph);
     }
 }
 void Renderer::endFrame() {
@@ -381,7 +502,7 @@ void Renderer::endFrame() {
             gl::Scissor(left, viewport_.framebufferHeight - bottom, std::max(0, right - left), std::max(0, bottom - top));
         }
         else gl::Disable(GL_SCISSOR_TEST);
-        gl::Uniform1i(texturedLocation_, command.texture ? 1 : 0);
+        gl::Uniform1i(modeLocation_, static_cast<int>(command.mode));
         gl::BindTexture(GL_TEXTURE_2D, command.texture);
         gl::DrawArrays(GL_TRIANGLES, static_cast<GLint>(command.first), static_cast<GLsizei>(command.count));
     }

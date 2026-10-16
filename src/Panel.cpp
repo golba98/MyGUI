@@ -9,6 +9,7 @@ Panel::Panel(const Rect& bounds) noexcept
 
 void Panel::setBackgroundColor(const Color& color) noexcept {
     backgroundColor_ = color;
+    requestRedraw();
 }
 
 const Color& Panel::backgroundColor() const noexcept {

@@ -16,10 +16,17 @@ Widget& Widget::operator=(const Widget& other) noexcept {
     }
     return *this;
 }
+const Theme& Widget::theme() const noexcept {
+    static const Theme fallback{};
+    return context_ ? context_->theme() : fallback;
+}
 void Widget::invalidateLayout() noexcept { if (context_) context_->invalidateLayout(); }
+void Widget::requestRedraw() noexcept { if (context_) context_->requestRedraw(); }
 void Widget::setBounds(const Rect& bounds) noexcept {
-    bounds_ = {std::isfinite(bounds.x) ? bounds.x : 0, std::isfinite(bounds.y) ? bounds.y : 0,
-               nonnegative(bounds.width), nonnegative(bounds.height)};
+    const Rect normalized{std::isfinite(bounds.x) ? bounds.x : 0, std::isfinite(bounds.y) ? bounds.y : 0,
+                          nonnegative(bounds.width), nonnegative(bounds.height)};
+    if (normalized == bounds_) return;
+    bounds_ = normalized;
     invalidateLayout();
 }
 void Widget::setVisible(bool visible) noexcept {
@@ -29,6 +36,7 @@ void Widget::setVisible(bool visible) noexcept {
 }
 void Widget::setEnabled(bool enabled) noexcept {
     enabled_ = enabled;
+    requestRedraw();
     if (!enabled && context_) context_->unavailable(*this);
 }
 void Widget::setFocusable(bool focusable) noexcept {

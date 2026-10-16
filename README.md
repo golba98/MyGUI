@@ -1,10 +1,13 @@
 # MyGUI
 
 A small C++20 GUI library and demo using GLFW, OpenGL 3.3, and FreeType.
-It supports labels, buttons, horizontal and vertical layouts, nested clipping,
-and UTF-8 text with mouse and keyboard interaction.
+It supports layouts, wrapped text, images, scrolling, themes, and controls
+including buttons, checkboxes, switches, sliders, progress bars, and text fields
+with selection and clipboard support.
 
-Linux is the tested platform. Windows and macOS are not currently tested.
+Linux CI runs Debug and Release builds and all tests under Xvfb/Mesa. Windows
+and macOS CI build everything and run headless tests; their rendering and window
+behavior are not yet tested.
 
 ## Build and run
 
@@ -24,6 +27,12 @@ Fedora:
 
 ```sh
 sudo dnf install git gcc-c++ cmake ninja-build glfw-devel mesa-libGL-devel freetype-devel
+```
+
+macOS (Homebrew):
+
+```sh
+brew install cmake ninja glfw freetype
 ```
 
 ### 2. Get the source
@@ -54,6 +63,15 @@ For a Release build:
 cmake --preset release
 cmake --build --preset release
 ./build/release/MyGUI
+```
+
+On Windows, use Visual Studio with [vcpkg](https://vcpkg.io):
+
+```powershell
+vcpkg install glfw3 freetype --triplet x64-windows
+cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build build --config Debug
+.\build\Debug\MyGUI.exe
 ```
 
 ## Try the demo
@@ -102,7 +120,7 @@ sudo apt-get install xvfb xauth
 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ctest --preset debug
 ```
 
-To run only the input, widget, layout, and font tests without a display:
+To run only the input, widget, layout, font, and image tests without a display:
 
 ```sh
 ctest --preset debug -L headless
@@ -112,19 +130,44 @@ For a Release build, use `ctest --preset release` instead.
 See [test details](docs/usage.md#test-details) for CI coverage, disabling tests,
 and renderer snapshots.
 
+## Examples
+
+Small programs in `examples/` show one topic each and build next to the demo (`-DMYGUI_BUILD_EXAMPLES=OFF` skips them):
+
+- `MyGUI_hello` (`examples/hello.cpp`): a label and a button, the minimum setup.
+- `MyGUI_layout` (`examples/layout.cpp`): nested layouts, flex weights and wrapped text that reflows on resize.
+- `MyGUI_widgets` (`examples/widgets.cpp`): every built-in control inside a scroll view.
+
+`examples/common/Example.hpp` holds their shared font lookup and event loop. Each accepts `--frames N` for smoke tests. The full demo lives in `examples/demo/main.cpp` and builds as `MyGUI`.
+
 ## Use the library
 
 Read the [usage reference](docs/usage.md) for widget examples, event handling,
-layout, rendering, and resource lifetimes. The [demo source](src/main.cpp) shows
+layout, rendering, and resource lifetimes. The [demo source](examples/demo/main.cpp) shows
 how to put these together in an application.
 
 The library owns its widget trees. Public headers hide native GLFW, OpenGL, and
 FreeType types. Window operations, input handling, and drawing run on the main
 thread; the reference explains the required event loop and resource ordering.
 
+### CMake integration
+
+Install the library and use the exported CMake package:
+
+```sh
+cmake --install build/release --prefix /path/to/prefix
+```
+
+```cmake
+find_package(MyGUI 0.1 REQUIRED)
+target_link_libraries(app PRIVATE MyGUI::MyGUI)
+```
+
+The package installs the public headers under `include/gui`, the static library, and the bundled Noto Sans font under `share/MyGUI/fonts`. Because MyGUI is static, its package finds GLFW and FreeType for you. `tests/package` is a minimal consumer that CI builds against a fresh install. When MyGUI is added with `add_subdirectory`, link `MyGUI::MyGUI`; its tests are not built, and examples and install rules default to off (`MYGUI_BUILD_EXAMPLES`, `MYGUI_INSTALL`).
+
 ## Current limits
 
-Text editing, scrolling controls, automatic line wrapping, complex-script shaping,
+Multi-line text editing, complex-script shaping,
 bidirectional layout, color emoji, and native accessibility integration are not
 included. Labels and buttons clip text that exceeds their bounds.
 

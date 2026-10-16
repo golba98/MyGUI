@@ -23,6 +23,7 @@ bool UIContext::available(const Widget* widget) const noexcept {
     return true;
 }
 void UIContext::unavailable(Widget& widget) noexcept {
+    redraw_ = true;
     if (belongsTo(hovered_, widget)) { hovered_->hovered_ = false; hovered_ = nullptr; }
     if (belongsTo(focused_, widget)) {
         focused_->focused_ = false; focused_->cancelInteraction(); focused_ = nullptr;
@@ -32,6 +33,7 @@ void UIContext::unavailable(Widget& widget) noexcept {
 bool UIContext::requestFocus(Widget* widget) noexcept {
     if (widget && (!windowFocused_ || !available(widget) || !widget->focusable_)) return false;
     if (focused_ != widget) {
+        redraw_ = true;
         if (focused_) {
             if (captured_ == focused_) captured_ = nullptr;
             focused_->focused_ = false; focused_->cancelInteraction();
@@ -64,7 +66,7 @@ void UIContext::ensureLayout() {
 Widget* UIContext::targetAt(Widget& widget, double x, double y, Rect clip) {
     if (!widget.visible_ || widget.pendingRemoval_ || !clip.contains(x, y)) return nullptr;
     if (auto* container = dynamic_cast<Container*>(&widget)) {
-        const auto childClip = container->clipChildren() ? intersect(clip, container->contentBounds()) : clip;
+        const auto childClip = container->clipChildren() ? intersect(clip, container->childClip()) : clip;
         for (auto it = container->children_.rbegin(); it != container->children_.rend(); ++it) {
             if (auto* result = targetAt(**it, x, y, childClip)) return result;
         }
@@ -76,6 +78,7 @@ void UIContext::updateHover() {
         ? targetAt(*root_, mouseX_, mouseY_, root_->bounds()) : nullptr;
     if (!available(target)) target = nullptr;
     if (hovered_ != target) {
+        redraw_ = true;
         if (hovered_) hovered_->hovered_ = false;
         hovered_ = target;
         if (hovered_) hovered_->hovered_ = true;
@@ -88,7 +91,24 @@ void UIContext::focusOrder(Widget& widget, std::vector<Widget*>& order) {
         for (auto& child : container->children_) focusOrder(*child, order);
     }
 }
-void UIContext::draw(Renderer& renderer) { ensureLayout(); updateHover(); root_->draw(renderer); }
+void UIContext::reveal(Widget& widget) {
+    // Innermost first; each step relayouts so outer views see updated bounds.
+    constexpr float margin = 4;
+    for (auto* ancestor = widget.parent_; ancestor; ancestor = ancestor->parent_) {
+        ensureLayout();
+        const auto& b = widget.bounds();
+        ancestor->scrollIntoView({b.x - margin, b.y - margin, b.width + 2 * margin, b.height + 2 * margin});
+    }
+    ensureLayout();
+    updateHover();
+}
+void UIContext::markDrawn() { ensureLayout(); updateHover(); redraw_ = false; }
+void UIContext::draw(Renderer& renderer) {
+    ensureLayout(); updateHover();
+    redraw_ = false;
+    try { root_->draw(renderer); }
+    catch (...) { redraw_ = true; throw; }
+}
 bool UIContext::handleEvent(const Event& event) {
     if (dispatching_) throw std::logic_error("Recursive UI event dispatch is not allowed");
     ensureLayout();
@@ -101,6 +121,7 @@ bool UIContext::handleEvent(const Event& event) {
     if (const auto* enter = event.getIf<CursorEnterEvent>()) {
         cursorInside_ = enter->entered; updateHover(); return false;
     }
+    if (event.getIf<WindowRefreshEvent>()) { redraw_ = true; return false; }
     if (const auto* resize = event.getIf<WindowResizeEvent>()) {
         layout({resize->logicalWidth, resize->logicalHeight, resize->width, resize->height}); return false;
     }
@@ -117,7 +138,7 @@ bool UIContext::handleEvent(const Event& event) {
         const auto it = std::find(order.begin(), order.end(), focused_);
         std::size_t index = it == order.end() ? (key->mods.shift ? order.size() - 1 : 0)
             : (static_cast<std::size_t>(it - order.begin()) + (key->mods.shift ? order.size() - 1 : 1)) % order.size();
-        requestFocus(order[index]);
+        if (requestFocus(order[index])) reveal(*order[index]);
         return true;
     }
     Widget* target = pointer ? (captured_ ? captured_ : (cursorInside_ ? targetAt(*root_, mouseX_, mouseY_, root_->bounds()) : nullptr)) : focused_;
@@ -145,6 +166,7 @@ bool UIContext::handleEvent(const Event& event) {
     }
     dispatching_ = false;
     root_->commitMutations();
+    if (handled) redraw_ = true;
     ensureLayout(); updateHover();
     return handled;
 }

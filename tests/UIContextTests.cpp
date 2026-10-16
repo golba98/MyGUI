@@ -1,10 +1,16 @@
 // These tests never create a window or an OpenGL context.
 #include "gui/Button.hpp"
+#include "gui/Checkbox.hpp"
+#include "gui/ProgressBar.hpp"
+#include "gui/ScrollView.hpp"
+#include "gui/Slider.hpp"
+#include "gui/TextField.hpp"
 #include "gui/UIContext.hpp"
 
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace {
@@ -18,8 +24,17 @@ void mouse(gui::UIContext& ui, double x, double y, gui::ButtonAction action) {
 void click(gui::UIContext& ui, double x, double y) {
     mouse(ui, x, y, gui::ButtonAction::Press); mouse(ui, x, y, gui::ButtonAction::Release);
 }
+void wheel(gui::UIContext& ui, double x, double y, double dy, double dx = 0) {
+    ui.handleEvent(gui::Event{gui::MouseScrollEvent{dx, dy, x, y}});
+}
 void key(gui::UIContext& ui, gui::Key key, gui::KeyAction action, bool shift = false) {
     ui.handleEvent(gui::Event{gui::KeyEvent{key, 0, action, {.shift = shift}}});
+}
+bool press(gui::UIContext& ui, gui::Key key, gui::Modifiers mods = {}) {
+    return ui.handleEvent(gui::Event{gui::KeyEvent{key, 0, gui::KeyAction::Press, mods}});
+}
+void type(gui::UIContext& ui, std::u32string_view text) {
+    for (const auto codepoint : text) ui.handleEvent(gui::Event{gui::TextInputEvent{codepoint}});
 }
 void testLayout() {
     gui::UIContext ui;
@@ -140,9 +155,267 @@ void testTreeMutations() {
     gui::Button copied = copySource;
     check(!copied.parent() && !copied.hovered() && !copied.focused() && !copied.pressed(), "widget copies never copy attachment or interaction state");
 }
+void testThemeAndCheckbox() {
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    auto& box = ui.root().emplace<gui::Checkbox>("Box"); box.setBounds({10, 10, 120, 24});
+    auto& button = ui.root().emplace<gui::Button>("Button"); button.setBounds({10, 60, 100, 40});
+    gui::Button detached{"detached"};
+    check(detached.style().normal.r == gui::Theme{}.accent.r, "detached widgets fall back to the default theme");
+    gui::Theme theme; theme.accent = {0.5f, 0.1f, 0.1f, 1}; theme.cornerRadius = 2;
+    ui.setTheme(theme);
+    check(button.style().normal.r == 0.5f && button.style().cornerRadius == 2, "button style follows the UI theme");
+    gui::ButtonStyle custom; custom.normal = {0, 0, 1, 1};
+    button.setStyle(custom); ui.setTheme(gui::Theme{});
+    check(button.style().normal.b == 1, "a custom button style overrides the theme");
+    button.resetStyle(); check(button.style().normal.r == gui::Theme{}.accent.r, "resetStyle returns to the theme");
+
+    std::vector<bool> changes; int clicks = 0;
+    box.setOnChange([&](bool checked) { changes.push_back(checked); });
+    box.setOnClick([&] { ++clicks; });
+    click(ui, 100, 20);
+    check(box.checked() && changes == std::vector<bool>{true} && clicks == 1, "clicking the label toggles and notifies once");
+    key(ui, gui::Key::Space, gui::KeyAction::Press); key(ui, gui::Key::Space, gui::KeyAction::Repeat);
+    key(ui, gui::Key::Space, gui::KeyAction::Release);
+    check(!box.checked() && changes.size() == 2, "Space toggles on release and ignores repeats");
+    mouse(ui, 20, 20, gui::ButtonAction::Press); move(ui, 300, 150); mouse(ui, 300, 150, gui::ButtonAction::Release);
+    check(!box.checked() && changes.size() == 2, "releasing outside cancels the toggle");
+    box.setChecked(true); check(box.checked() && changes.size() == 2, "programmatic changes do not notify");
+    box.setEnabled(false); click(ui, 20, 20); check(box.checked(), "disabled checkboxes ignore clicks");
+    gui::Switch toggle{"Switch", nullptr, true};
+    check(toggle.checked() && toggle.preferredSize().width > gui::Checkbox{}.preferredSize().width,
+          "switches are checkboxes with a wider indicator");
+}
+void testSlider() {
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    auto& slider = ui.root().emplace<gui::Slider>(0.0f, 100.0f, 50.0f); slider.setBounds({10, 10, 216, 24});
+    std::vector<float> values;
+    slider.setOnChange([&](float value) { values.push_back(value); });
+    // The track runs from x = 18 to x = 218, so each logical unit is half a value unit.
+    mouse(ui, 18, 20, gui::ButtonAction::Press);
+    check(slider.dragging() && ui.capturedWidget() == &slider && slider.value() == 0, "press captures and jumps to the cursor");
+    move(ui, 118, 190); check(near(slider.value(), 50), "captured drags follow x outside the bounds");
+    move(ui, 1000, 20); check(slider.value() == 100, "drags clamp to the maximum");
+    mouse(ui, -50, 20, gui::ButtonAction::Release);
+    check(!slider.dragging() && !ui.capturedWidget() && slider.value() == 0, "release ends the drag at the final position");
+    check(values.size() == 4, "each changed value notifies once");
+    slider.setStep(10); slider.setValue(44); check(slider.value() == 40, "values snap to the step");
+    slider.setValue(std::nanf("")); check(slider.value() == 40, "NaN values are ignored");
+    ui.requestFocus(&slider); values.clear();
+    key(ui, gui::Key::Right, gui::KeyAction::Press); key(ui, gui::Key::Right, gui::KeyAction::Repeat);
+    check(slider.value() == 60 && values.size() == 2, "arrow keys step, including repeats");
+    key(ui, gui::Key::PageDown, gui::KeyAction::Press); check(slider.value() == 0, "PageDown moves ten steps and clamps");
+    key(ui, gui::Key::End, gui::KeyAction::Press); check(slider.value() == 100, "End jumps to the maximum");
+    key(ui, gui::Key::Up, gui::KeyAction::Press); check(values.size() == 4, "unchanged values do not notify");
+    slider.setRange(0, 30); check(slider.value() == 30, "narrowing the range clamps the value");
+    bool caught = false;
+    try { slider.setRange(5, 1); } catch (const std::invalid_argument&) { caught = true; }
+    check(caught, "inverted ranges are rejected");
+    caught = false;
+    try { slider.setStep(-1); } catch (const std::invalid_argument&) { caught = true; }
+    check(caught, "negative steps are rejected");
+    mouse(ui, 100, 20, gui::ButtonAction::Press); slider.setEnabled(false);
+    check(!slider.dragging() && !ui.capturedWidget(), "disabling cancels a drag");
+    mouse(ui, 50, 20, gui::ButtonAction::Press); check(!slider.dragging(), "disabled sliders ignore presses");
+    slider.setEnabled(true); mouse(ui, 100, 20, gui::ButtonAction::Press);
+    gui::Slider copy = slider; check(!copy.dragging() && copy.value() == slider.value(), "copies keep the value but not the drag");
+    gui::ProgressBar progress{1.5f}; check(progress.value() == 1, "progress clamps to one");
+    progress.setValue(std::nanf("")); check(progress.value() == 0, "NaN progress becomes zero");
+}
+void testScrollView() {
+    gui::UIContext ui;
+    auto& view = ui.root().emplace<gui::ScrollView>(); view.setBounds({0, 0, 300, 200});
+    std::vector<gui::Button*> rows; int clicked = -1;
+    for (int i = 0; i < 10; ++i) {
+        // Buttons add 16 units of padding to the preferred height: rows are 50 tall.
+        auto& row = view.content().emplace<gui::Button>("row"); row.setPreferredSize({0, 34});
+        row.setOnClick([&clicked, i] { clicked = i; }); rows.push_back(&row);
+    }
+    ui.layout({300, 200, 300, 200});
+    check(near(view.contentSize().height, 500) && near(view.maxScrollOffset().y, 300), "content keeps its preferred height");
+    check(near(view.viewport().width, 290) && near(rows[0]->bounds().width, 290), "the scrollbar gutter is never covered by content");
+    check(near(view.maxScrollOffset().x, 0), "horizontal scrolling is off by default");
+    wheel(ui, 50, 50, -1);
+    check(near(view.scrollOffset().y, gui::ScrollView::lineStep) && near(rows[0]->bounds().y, -gui::ScrollView::lineStep), "wheel down scrolls content up");
+    view.setScrollOffset({0, 1000}); ui.layout({300, 200, 300, 200});
+    check(near(view.scrollOffset().y, 300) && near(rows[9]->bounds().y, 150), "offsets clamp to the content end");
+    click(ui, 50, 10); check(clicked == 6, "clicks hit the scrolled content");
+    wheel(ui, 50, 50, -1); check(near(view.scrollOffset().y, 300), "wheel at the limit leaves the offset alone");
+    view.setScrollOffset({0, 0}); ui.layout({300, 200, 300, 200});
+    clicked = -1; click(ui, 295, 190);
+    check(clicked == -1, "the gutter does not route to content beside it");
+    check(near(view.scrollOffset().y, 200), "clicking the track below the thumb pages down");
+
+    // Thumb drag captures and maps thumb travel to the offset range.
+    view.setScrollOffset({0, 0}); ui.layout({300, 200, 300, 200});
+    // Thumb length is 200 * 200 / 500 = 80, so 120 units of travel cover 300 offset units.
+    mouse(ui, 295, 10, gui::ButtonAction::Press); check(view.dragging() && ui.capturedWidget() == &view, "pressing the thumb captures the pointer");
+    move(ui, 600, 70); check(near(view.scrollOffset().y, 150), "thumb drag follows the pointer outside the view");
+    mouse(ui, 600, 70, gui::ButtonAction::Release); check(!view.dragging() && !ui.capturedWidget(), "release ends the thumb drag");
+
+    view.setScrollOffset({0, 0}); ui.layout({300, 200, 300, 200});
+    ui.requestFocus(rows[0]);
+    for (int i = 0; i < 9; ++i) key(ui, gui::Key::Tab, gui::KeyAction::Press);
+    check(rows[9]->focused() && rows[9]->bounds().y + 50 <= 200 && rows[9]->bounds().y >= 0, "Tab scrolls the focused widget into view");
+    key(ui, gui::Key::Tab, gui::KeyAction::Press);
+    check(rows[0]->focused() && rows[0]->bounds().y >= 0, "wrapping focus scrolls back to the top");
+    key(ui, gui::Key::PageDown, gui::KeyAction::Press);
+    check(near(view.scrollOffset().y, 200), "PageDown bubbles from a focused child and scrolls a page");
+
+    // Nested views: the inner one consumes the wheel until it reaches its limit.
+    gui::UIContext nested;
+    auto& outer = nested.root().emplace<gui::ScrollView>(); outer.setBounds({0, 0, 200, 200});
+    auto& inner = outer.content().emplace<gui::ScrollView>(); inner.setPreferredSize({0, 100}); inner.setMinimumSize({0, 100});
+    auto& tall = inner.content().emplace<gui::Panel>(); tall.setPreferredSize({0, 300});
+    auto& filler = outer.content().emplace<gui::Panel>(); filler.setPreferredSize({0, 400});
+    nested.layout({200, 200, 200, 200});
+    wheel(nested, 50, 50, -1);
+    check(near(inner.scrollOffset().y, 40) && near(outer.scrollOffset().y, 0), "the innermost view consumes the wheel");
+    wheel(nested, 50, 50, 1); wheel(nested, 50, 50, 1);
+    check(near(inner.scrollOffset().y, 0) && near(outer.scrollOffset().y, 0), "neither view scrolls past its start");
+    for (int i = 0; i < 5; ++i) wheel(nested, 50, 50, -1);
+    check(near(inner.scrollOffset().y, 200) && near(outer.scrollOffset().y, 0), "the inner view stops at its end");
+    wheel(nested, 50, 50, -1);
+    check(near(outer.scrollOffset().y, 40), "the wheel bubbles to the outer view at the inner limit");
+
+    gui::UIContext wide;
+    auto& sideways = wide.root().emplace<gui::ScrollView>(); sideways.setBounds({0, 0, 100, 100});
+    sideways.setHorizontalScrolling(true); sideways.content().setLayout(gui::Layout::Horizontal);
+    auto& strip = sideways.content().emplace<gui::Panel>(); strip.setPreferredSize({400, 50});
+    wide.layout({100, 100, 100, 100});
+    wheel(wide, 50, 50, 0, -1);
+    check(near(sideways.maxScrollOffset().x, 300) && near(sideways.scrollOffset().x, 40) && near(strip.bounds().x, -40),
+          "horizontal scrolling uses the horizontal wheel");
+    check(near(sideways.viewport().height, 100 - gui::ScrollView::scrollbarWidth), "a horizontal bar reserves its own gutter");
+}
+void testTextField() {
+    const auto font = gui::Font::load(MYGUI_TEST_FONT);
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    auto& field = ui.root().emplace<gui::TextField>(font); field.setBounds({10, 10, 200, 34});
+    std::vector<std::string> changes; std::string submitted;
+    field.setOnChange([&](const std::string& text) { changes.push_back(text); });
+    field.setOnSubmit([&](const std::string& text) { submitted = text; });
+    type(ui, U"ignored"); check(field.text().empty(), "unfocused fields ignore text input");
+    click(ui, 50, 20); check(field.focused(), "clicking focuses the field");
+    type(ui, U"caf\u00E9 \U0001F642");
+    check(field.text() == "caf\xC3\xA9 \xF0\x9F\x99\x82" && field.caret() == field.text().size(), "typing inserts UTF-8 at the caret");
+    check(changes.size() == 6 && changes.back() == field.text(), "each inserted character notifies");
+    key(ui, gui::Key::Backspace, gui::KeyAction::Press); check(field.text() == "caf\xC3\xA9 ", "Backspace removes a whole supplementary code point");
+    key(ui, gui::Key::Left, gui::KeyAction::Press); key(ui, gui::Key::Left, gui::KeyAction::Repeat);
+    check(field.caret() == 3, "Left moves by code points, including repeats");
+    key(ui, gui::Key::Delete, gui::KeyAction::Press); check(field.text() == "caf ", "Delete removes the two-byte code point after the caret");
+    key(ui, gui::Key::Home, gui::KeyAction::Press); type(ui, U">");
+    check(field.text() == ">caf " && field.caret() == 1, "Home moves to the start before inserting");
+    key(ui, gui::Key::End, gui::KeyAction::Press); check(field.caret() == field.text().size(), "End moves to the end");
+    const auto count = changes.size();
+    key(ui, gui::Key::Backspace, gui::KeyAction::Release); key(ui, gui::Key::Home, gui::KeyAction::Press);
+    key(ui, gui::Key::Backspace, gui::KeyAction::Press); key(ui, gui::Key::Left, gui::KeyAction::Press);
+    check(changes.size() == count && field.caret() == 0, "navigation and no-op deletion do not notify");
+    type(ui, U"\n\t\u0007\u007F"); check(field.text() == ">caf ", "control characters are not inserted");
+    key(ui, gui::Key::Enter, gui::KeyAction::Press); key(ui, gui::Key::Enter, gui::KeyAction::Repeat);
+    check(submitted == ">caf ", "Enter submits the text");
+    check(press(ui, gui::Key::V), "unmodified keys are consumed so app shortcuts do not fire");
+    check(!press(ui, gui::Key::Escape) && !press(ui, gui::Key::PageDown) && !press(ui, gui::Key::Q, {.control = true}),
+          "Escape, paging and modifier shortcuts still bubble");
+
+    field.setText("ab\ncd\xFF"); check(field.text() == "abcd\xEF\xBF\xBD" && field.caret() == field.text().size(),
+                                          "setText cleans the line and moves the caret to the end");
+    check(changes.size() == count, "setText never notifies");
+    field.setCaret(5); check(field.caret() == 4, "setCaret snaps back to a code point boundary");
+    field.setCaret(99); check(field.caret() == field.text().size(), "setCaret clamps to the text");
+    field.setText("iiii WWWW");
+    const auto offsets = font->caretOffsets("iiii WWWW", 16);
+    click(ui, 10 + 8 + offsets[5] + 1, 20); check(field.caret() == 5, "clicks place the caret at the nearest boundary");
+    click(ui, 300, 20); check(field.caret() == 5, "clicks outside the field leave the caret");
+    click(ui, 15, 20); check(field.caret() == 0, "clicks before the text place the caret at the start");
+
+    auto& narrow = ui.root().emplace<gui::TextField>(font); narrow.setBounds({10, 100, 60, 34});
+    ui.requestFocus(&narrow); type(ui, U"a long line of text that overflows");
+    click(ui, 10 + 8 + 44 - 1, 110);
+    check(narrow.caret() == narrow.text().size(), "after scrolling, a click near the right edge maps through the scroll offset");
+    narrow.setEnabled(false); type(ui, U"x"); check(narrow.text().back() == 's', "disabled fields ignore input");
+}
+// draw() needs OpenGL; markDrawn() clears the flag the same way without it.
+void testRedrawTracking() {
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    check(ui.needsRedraw(), "a new UI needs its first draw");
+    auto& button = ui.root().emplace<gui::Button>("b"); button.setBounds({10, 10, 100, 40});
+    auto& slider = ui.root().emplace<gui::Slider>(); slider.setBounds({10, 60, 200, 24});
+    auto& label = ui.root().emplace<gui::Label>("label"); label.setBounds({10, 100, 100, 20});
+    const auto drawn = [&] { ui.markDrawn(); return !ui.needsRedraw(); };
+    check(drawn(), "markDrawn clears the flag");
+    move(ui, 300, 150); check(!ui.needsRedraw(), "pointer movement over nothing interactive needs no redraw");
+    move(ui, 20, 20); check(ui.needsRedraw(), "hover changes need a redraw");
+    drawn(); move(ui, 25, 25); check(!ui.needsRedraw(), "moving within the hovered widget needs no redraw");
+    key(ui, gui::Key::Tab, gui::KeyAction::Press); check(ui.needsRedraw(), "focus changes need a redraw");
+    drawn(); label.setTextColor({1, 0, 0, 1}); check(ui.needsRedraw(), "visual setters request a redraw");
+    drawn(); label.setText("changed"); check(ui.needsRedraw(), "layout changes need a redraw");
+    drawn(); slider.setValue(0.5f); check(ui.needsRedraw(), "value setters request a redraw");
+    drawn(); button.setEnabled(false); check(ui.needsRedraw(), "enabling and disabling request a redraw");
+    drawn(); ui.handleEvent(gui::Event{gui::WindowRefreshEvent{}}); check(ui.needsRedraw(), "window refresh requests a redraw");
+    drawn(); ui.handleEvent(gui::Event{gui::KeyEvent{gui::Key::Q, 0, gui::KeyAction::Press, {}}});
+    check(!ui.needsRedraw(), "unhandled key events need no redraw");
+    drawn(); ui.setTheme(gui::Theme{}); check(ui.needsRedraw(), "theme changes need a redraw");
+    drawn(); ui.layout({500, 200, 500, 200}); check(ui.needsRedraw(), "viewport changes need a redraw");
+    gui::Label detached{"x"}; detached.setTextColor({0, 0, 0, 1}); check(true, "detached widgets can change without a UI");
+}
+struct FakeClipboard : gui::Clipboard {
+    std::string contents;
+    std::string text() const override { return contents; }
+    void setText(std::string_view text) override { contents = text; }
+};
+void testTextSelection() {
+    const auto font = gui::Font::load(MYGUI_TEST_FONT);
+    gui::UIContext ui; ui.layout({400, 200, 400, 200});
+    FakeClipboard clipboard;
+    auto& field = ui.root().emplace<gui::TextField>(font, "hello brave new world"); field.setBounds({10, 10, 300, 34});
+    int changes = 0; field.setOnChange([&](const std::string&) { ++changes; });
+    ui.requestFocus(&field);
+    const gui::Modifiers shift{.shift = true}, ctrl{.control = true}, ctrlShift{.shift = true, .control = true};
+    press(ui, gui::Key::Left, shift); press(ui, gui::Key::Left, shift);
+    check(field.selectedText() == "ld" && field.caret() == 19, "Shift+Left extends the selection from the anchor");
+    press(ui, gui::Key::Left); check(!field.hasSelection() && field.caret() == 19, "Left collapses a selection to its start");
+    press(ui, gui::Key::Left, ctrl); check(field.caret() == 16, "Ctrl+Left moves to the start of the word");
+    press(ui, gui::Key::Left, ctrl); check(field.caret() == 12, "Ctrl+Left skips spaces to the previous word");
+    press(ui, gui::Key::Right, ctrlShift); check(field.selectedText() == "new", "Ctrl+Shift+Right selects to the word end");
+    press(ui, gui::Key::Right); check(field.caret() == 15 && !field.hasSelection(), "Right collapses a selection to its end");
+    press(ui, gui::Key::Home, shift); check(field.selectedText() == "hello brave new", "Shift+Home selects to the start");
+    type(ui, U"X"); check(field.text() == "X world" && field.caret() == 1 && changes == 1, "typing replaces the selection with one change");
+    press(ui, gui::Key::End, shift); press(ui, gui::Key::Backspace); check(field.text() == "X", "Backspace deletes the selection");
+
+    field.setText("one two three");
+    press(ui, gui::Key::Backspace, ctrl); check(field.text() == "one two ", "Ctrl+Backspace deletes the previous word");
+    press(ui, gui::Key::Home); press(ui, gui::Key::Delete, ctrl); check(field.text() == " two ", "Ctrl+Delete deletes to the next word end");
+
+    field.setText("copy me"); press(ui, gui::Key::A, ctrl);
+    check(field.selectedText() == "copy me", "Ctrl+A selects all");
+    check(press(ui, gui::Key::C, ctrl) && clipboard.contents.empty(), "copy without a clipboard is a consumed no-op");
+    ui.setClipboard(&clipboard);
+    press(ui, gui::Key::C, ctrl); check(clipboard.contents == "copy me" && field.text() == "copy me", "Ctrl+C copies the selection");
+    field.setSelection(0, 5); press(ui, gui::Key::X, {.super = true});
+    check(clipboard.contents == "copy " && field.text() == "me", "Super+X cuts the selection");
+    clipboard.contents = "multi\nline\ttext\xFF";
+    press(ui, gui::Key::End); press(ui, gui::Key::V, ctrl);
+    check(field.text() == "memultilinetext\xEF\xBF\xBD", "paste strips control characters and repairs UTF-8");
+    field.selectAll(); clipboard.contents.clear(); press(ui, gui::Key::V, ctrl);
+    check(field.text().empty(), "pasting empty text over a selection deletes it");
+    changes = 0; press(ui, gui::Key::V, ctrl); check(changes == 0, "pasting nothing without a selection is a no-op");
+    check(!press(ui, gui::Key::S, ctrl), "unhandled shortcuts still bubble");
+
+    field.setText("iiii WWWW");
+    const auto offsets = font->caretOffsets("iiii WWWW", 16);
+    const auto xAt = [&](std::size_t index) { return 10 + 8 + offsets[index]; };
+    mouse(ui, xAt(1) + 1, 20, gui::ButtonAction::Press);
+    check(field.dragging() && ui.capturedWidget() == &field, "pressing in the field captures the pointer");
+    move(ui, xAt(7) + 1, 150); check(field.selection() == std::make_pair<std::size_t, std::size_t>(1, 7), "dragging selects, even below the field");
+    mouse(ui, xAt(7) + 1, 150, gui::ButtonAction::Release); check(!field.dragging() && !ui.capturedWidget(), "release ends the drag");
+    ui.handleEvent(gui::Event{gui::MouseButtonEvent{gui::MouseButton::Left, gui::ButtonAction::Press, xAt(9) + 1, 20, {.shift = true}}});
+    check(field.selection() == std::make_pair<std::size_t, std::size_t>(1, 9), "Shift+click extends from the anchor");
+    mouse(ui, xAt(9) + 1, 20, gui::ButtonAction::Release);
+    field.setCaret(3); check(!field.hasSelection() && field.caret() == 3, "setCaret clears the selection");
+}
 }
 int main() {
-    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); }
+    try { testLayout(); testButtonsAndFocus(); testRoutingAndClips(); testTreeMutations(); testThemeAndCheckbox(); testSlider(); testScrollView(); testTextField(); testTextSelection(); testRedrawTracking(); }
     catch (const std::exception& error) { std::fprintf(stderr, "Error: %s\n", error.what()); return 1; }
     return failures ? 1 : 0;
 }

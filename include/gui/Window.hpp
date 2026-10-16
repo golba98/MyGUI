@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gui/Clipboard.hpp"
 #include "gui/Event.hpp"
 #include "gui/Renderer.hpp"
 #include "gui/Viewport.hpp"
@@ -32,6 +33,12 @@ public:
     bool shouldClose() const;
     // Global poll: resets input edges for all windows. Call once per app frame.
     void pollEvents();
+    // Like pollEvents(), but sleeps until at least one event arrives. A
+    // negative timeout waits indefinitely, zero polls, and a positive timeout
+    // returns after that many seconds even without events. Rejects NaN.
+    void waitEvents(double timeoutSeconds = -1);
+    // Wakes a waitEvents() call. Thread-safe while any window exists.
+    static void postEmptyEvent();
     void makeContextCurrent() const;
     void swapBuffers() const;
     // Applies to this window; also makes its context current.
@@ -43,6 +50,10 @@ public:
     // FIFO delivery when queueing is enabled. Unread events survive polling.
     // State reflects all received events, not the event being removed here.
     std::optional<Event> nextEvent();
+
+    // Synchronizes swapBuffers() with the display refresh. On by default, so
+    // the render loop does not spin at full speed. Makes this window current.
+    void setVSync(bool enabled);
 
     // Framebuffer size in pixels. On HiDPI displays this can differ
     // from the logical window size requested in the constructor.
@@ -66,6 +77,10 @@ public:
     // Polled keyboard and mouse state. Refreshed by each pollEvents() call.
     const Input& input() const;
 
+    // System clipboard, valid for the lifetime of this window (moves with it).
+    // Main thread only.
+    Clipboard& clipboard();
+
 private:
     // GLFW is a C library and cannot call member functions directly, so these
     // static functions receive the events and forward them to the owning Window
@@ -81,6 +96,8 @@ private:
 
     static void focusCallback(GLFWwindow* window, int focused);
     static void cursorEnterCallback(GLFWwindow* window, int entered);
+    static void refreshCallback(GLFWwindow* window);
+    static void processEvents(double timeoutSeconds);
 
     void onFramebufferResize(int width, int height);
     void emitResize(ResizeSource source);

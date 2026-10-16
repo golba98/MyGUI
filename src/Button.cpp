@@ -60,16 +60,10 @@ bool Button::onEvent(const Event& event, UIContext& context) {
 }
 void Button::draw(Renderer& renderer) const {
     if (!visible()) return;
-    const auto color = !enabled() ? style_.disabled : pressed() ? style_.pressed : hovered() ? style_.hovered : style_.normal;
-    renderer.drawRect(bounds(), color);
-    if (focused()) {
-        const auto& b = bounds();
-        constexpr float border = 2;
-        renderer.drawRect({b.x, b.y, b.width, std::min(border, b.height)}, style_.focus);
-        renderer.drawRect({b.x, b.y + std::max(0.0f, b.height - border), b.width, std::min(border, b.height)}, style_.focus);
-        renderer.drawRect({b.x, b.y, std::min(border, b.width), b.height}, style_.focus);
-        renderer.drawRect({b.x + std::max(0.0f, b.width - border), b.y, std::min(border, b.width), b.height}, style_.focus);
-    }
-    drawText(renderer, enabled() ? textColor() : style_.disabledText);
+    const auto s = style();
+    const auto color = !enabled() ? s.disabled : pressed() ? s.pressed : hovered() ? s.hovered : s.normal;
+    renderer.drawRoundedRect(bounds(), s.cornerRadius, color);
+    if (focused()) renderer.drawBorder(bounds(), theme().focusWidth, s.focus, s.cornerRadius);
+    drawText(renderer, enabled() ? textColor() : s.disabledText);
 }
 } // namespace gui

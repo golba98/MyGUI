@@ -4,14 +4,14 @@
   "configurePresets": [
     {
       "name": "debug",
-      "displayName": "Linux Debug",
+      "displayName": "Debug",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "BUILD_TESTING": "ON" }
     },
     {
       "name": "release",
-      "displayName": "Linux Release",
+      "displayName": "Release",
       "inherits": "debug",
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
