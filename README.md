@@ -67,8 +67,6 @@ cmake --build --preset release
 
 On Windows, use Visual Studio with [vcpkg](https://vcpkg.io):
 
-Windows (Visual Studio with [vcpkg](https://vcpkg.io)):
-
 ```powershell
 vcpkg install glfw3 freetype --triplet x64-windows
 cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
@@ -134,7 +132,6 @@ and renderer snapshots.
 
 ## Examples
 
-
 Small programs in `examples/` show one topic each and build next to the demo (`-DMYGUI_BUILD_EXAMPLES=OFF` skips them):
 
 - `MyGUI_hello` (`examples/hello.cpp`): a label and a button, the minimum setup.
@@ -154,7 +151,6 @@ FreeType types. Window operations, input handling, and drawing run on the main
 thread; the reference explains the required event loop and resource ordering.
 
 ### CMake integration
-
 
 Install the library and use the exported CMake package:
 

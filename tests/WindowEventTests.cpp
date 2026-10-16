@@ -387,8 +387,15 @@ void testWindowLifetime(gui::Window& survivor, GLFWwindow* native, const Callbac
           "destroying a second window preserves the survivor and its context");
     {
         gui::Window first{100, 100, "first"};
+        const auto firstNative = glfwGetCurrentContext();
         gui::Window second{100, 100, "second"};
         const auto retained = glfwGetCurrentContext();
+        first.setVSync(false);
+        check(glfwGetCurrentContext() == firstNative,
+            "disabling vsync selects the requested window context");
+        second.setVSync(true);
+        check(glfwGetCurrentContext() == retained,
+            "enabling vsync selects the requested window context");
         first = std::move(second);
         first.makeContextCurrent();
         check(glfwGetCurrentContext() == retained && !first.shouldClose(), "move assignment releases only the replaced window");
