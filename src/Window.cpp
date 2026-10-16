@@ -132,6 +132,7 @@ Window::Window(int width, int height, const std::string& title) : state_{std::ma
     }
 
     glfwMakeContextCurrent(state_->window_);
+    setVSync(true);
 
     glfwSetWindowUserPointer(state_->window_, this);
     glfwSetFramebufferSizeCallback(
@@ -225,6 +226,10 @@ void Window::swapBuffers() const {
 void Window::setSwapInterval(int interval) const {
     makeContextCurrent();
     glfwSwapInterval(interval);
+}
+
+void Window::setVSync(bool enabled) {
+    setSwapInterval(enabled ? 1 : 0);
 }
 
 GLProcLoader Window::glProcLoader() const {

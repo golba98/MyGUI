@@ -51,6 +51,10 @@ public:
     // State reflects all received events, not the event being removed here.
     std::optional<Event> nextEvent();
 
+    // Synchronizes swapBuffers() with the display refresh. On by default, so
+    // the render loop does not spin at full speed. Makes this window current.
+    void setVSync(bool enabled);
+
     // Framebuffer size in pixels. On HiDPI displays this can differ
     // from the logical window size requested in the constructor.
     int getWidth() const;
