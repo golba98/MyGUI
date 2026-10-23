@@ -5,6 +5,12 @@ It supports layouts, wrapped text, images, scrolling, themes, and controls
 including buttons, checkboxes, switches, sliders, progress bars, and text fields
 with selection and clipboard support.
 
+![Widget tree rendered by the library](docs/widgets.png)
+
+The image above is a real render of the library's widget suite (labels,
+buttons, checkboxes, switches, sliders, progress bars, and text fields),
+captured from the renderer test suite; no mockups are used.
+
 Linux CI runs Debug and Release builds and all tests under Xvfb/Mesa. Windows
 and macOS CI build everything and run headless tests; their rendering and window
 behavior are not yet tested.
