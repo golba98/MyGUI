@@ -39,6 +39,7 @@ public:
     float flex() const noexcept { return flex_; }
 
 protected:
+    UIContext* attachedContext() const noexcept { return context_; }
     Widget() = default;
     explicit Widget(const Rect& bounds) noexcept;
     // Copies retain visual properties, never attachment or interaction state.

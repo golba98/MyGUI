@@ -1,6 +1,10 @@
 #pragma once
 
 #include "gui/Clipboard.hpp"
+#include "gui/Dialog.hpp"
+#include "gui/Overlay.hpp"
+#include "gui/Popup.hpp"
+#include <array>
 #include "gui/Container.hpp"
 #include "gui/Event.hpp"
 #include "gui/Theme.hpp"
@@ -26,6 +30,12 @@ public:
     // copy and paste in text widgets.
     void setClipboard(Clipboard* clipboard) noexcept { clipboard_ = clipboard; }
     Clipboard* clipboard() const noexcept { return clipboard_; }
+    OverlayHandle openOverlay(std::unique_ptr<Container> overlay, OverlayOptions options = {});
+    OverlayHandle openDialog(std::unique_ptr<Dialog> dialog,
+        std::function<void(Dialog&, const DialogResult&)> completion = {});
+    OverlayHandle openPopup(Widget& owner, std::unique_ptr<Popup>, PopupOptions = {});
+    bool closeOverlay(OverlayHandle handle);
+    bool isOverlayOpen(OverlayHandle handle) const noexcept;
     void layout(const Viewport& viewport);
     void draw(Renderer& renderer);
     bool handleEvent(const Event& event);
@@ -59,6 +69,38 @@ private:
     void updateHover();
     void ensureLayout();
     void focusOrder(Widget& widget, std::vector<Widget*>& order);
+    struct Overlay {
+        OverlayHandle handle;
+        std::unique_ptr<Container> tree;
+        bool modal{}, closing{};
+        Widget* savedFocus{};
+        bool popup{};
+        Widget* owner{};
+        std::uint64_t scope{};
+        PopupOptions placement;
+        DialogResult result;
+        std::function<void(Dialog&, const DialogResult&)> completion;
+    };
+    Overlay* activeModal() const noexcept;
+    Overlay* activePopup() const noexcept;
+    Rect visibleAnchor(const Widget&) const noexcept;
+    bool placePopup(Overlay&);
+    void cancelPopup() noexcept;
+    void suppressHeld() noexcept;
+    bool permitted(const Widget*) const noexcept;
+    Widget* pointerTarget();
+    void scopeFocus(Widget* preferred = nullptr);
+    void reconcileModal();
+    void cancelBlocked() noexcept;
+    bool closeEntry(OverlayHandle, DialogResult);
+    void settle();
+    void traversal(std::vector<Widget*>&);
+    std::shared_ptr<int> identity_{std::make_shared<int>(0)};
+    std::uint64_t nextOverlay_{1}, modalId_{};
+    std::vector<std::unique_ptr<Overlay>> overlays_;
+    bool settling_{false}, modalDuringDispatch_{false};
+    std::array<bool, 8> heldButtons_{}, suppressedButtons_{};
+    std::array<bool, static_cast<std::size_t>(Key::Menu)+1> heldKeys_{}, suppressedKeys_{};
     std::unique_ptr<Container> root_;
     Theme theme_{};
     Clipboard* clipboard_{nullptr};

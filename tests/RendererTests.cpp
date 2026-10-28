@@ -536,6 +536,64 @@ void testImages(gui::Renderer& renderer, const TestGL& gl, const std::shared_ptr
     expectNoGLError(gl, "image drawing");
 }
 
+void testOverlays(gui::Renderer& renderer, const TestGL& gl) {
+    for (const auto viewport : {makeViewport(320,240,320,240), makeViewport(320,240,640,360)}) {
+        const Target target{gl,viewport.framebufferWidth,viewport.framebufferHeight};
+        gui::UIContext ui;
+        ui.root().setPadding({100,100,100,100});
+        ui.root().setBackgroundColor(red);
+        auto overlay = std::make_unique<gui::Container>();
+        overlay->setBackgroundColor(gui::Color{0,0,0,0});
+        overlay->emplace<gui::Panel>(gui::Rect{-20,-20,100,100}).setBackgroundColor(green);
+        const auto first = ui.openOverlay(std::move(overlay));
+        ui.layout(viewport);
+        const auto render = [&] { renderer.beginFrame(viewport); renderer.clear(background); ui.draw(renderer); renderer.endFrame(); };
+        const auto sample = [&](int x,int y,const gui::Color& color,const char* message) {
+            expectPixel(target,static_cast<int>(static_cast<float>(x)*viewport.scaleX()),
+                static_cast<int>(static_cast<float>(y)*viewport.scaleY()),color,message);
+        };
+        render(); sample(10,10,green,"overlay escapes ordinary content clip");
+        auto top = std::make_unique<gui::Container>(); top->setBackgroundColor({0,0,0,0});
+        top->emplace<gui::Panel>(gui::Rect{0,0,40,40}).setBackgroundColor(background);
+        const auto second = ui.openOverlay(std::move(top));
+        render(); sample(10,10,background,"later overlay draws above earlier overlay");
+        ui.closeOverlay(second); ui.closeOverlay(first);
+        auto dialog=std::make_unique<gui::Dialog>("Backdrop"); dialog->addCancelAction();
+        const auto handle=ui.openDialog(std::move(dialog)); render();
+        sample(1,1,{0.5f,0,0,1},"dialog backdrop blends across viewport");
+        ui.closeOverlay(handle); render(); sample(1,1,red,"close removes backdrop");
+        // A smaller logical UI viewport must clip an overflowing overlay even
+        // when the renderer's framebuffer extends past it.
+        auto clipped=std::make_unique<gui::Container>(); clipped->setClipChildren(false);
+        clipped->setBackgroundColor({0,0,0,0});
+        clipped->emplace<gui::Panel>(gui::Rect{0,0,600,600}).setBackgroundColor(green);
+        ui.openOverlay(std::move(clipped)); ui.layout({100,100,100,100}); render();
+        sample(99,99,green,"overlay reaches viewport edge");
+        sample(110,110,background,"overflow clipped to UI viewport");
+        expectNoGLError(gl,"overlay drawing");
+    }
+}
+
+void testPopupRendering(gui::Renderer& renderer,const TestGL& gl) {
+    for (const auto view : {makeViewport(400,300,400,300),makeViewport(400,300,800,450)}) {
+        const Target target{gl,view.framebufferWidth,view.framebufferHeight};
+        gui::UIContext ui; ui.root().setBackgroundColor(background); ui.layout(view);
+        auto dialog=std::make_unique<gui::Dialog>("Popup stacking");
+        auto& owner=dialog->content().emplace<gui::Button>("anchor");
+        ui.openDialog(std::move(dialog)); ui.layout(view);
+        auto popup=std::make_unique<gui::Popup>(); auto* sheet=popup.get();
+        popup->content().emplace<gui::Panel>().setPreferredSize({100,300});
+        popup->content().children().front()->setMinimumSize({0,300});
+        static_cast<gui::Panel&>(*popup->content().children().front()).setBackgroundColor(green);
+        ui.openPopup(owner,std::move(popup)); ui.layout(view);
+        renderer.beginFrame(view); renderer.clear(background); ui.draw(renderer); renderer.endFrame();
+        const auto b=sheet->bounds();
+        expectPixel(target,static_cast<int>((b.x+8)*view.scaleX()),static_cast<int>((b.y+8)*view.scaleY()),green,"popup above modal and beyond owner clip");
+        expectPixel(target,0,0,{0.1f,0.2f,0.3f,1},"popup has no additional backdrop");
+        expectNoGLError(gl,"popup rendering with independent scales");
+    }
+}
+
 void testScrollViewRendering(gui::Renderer& renderer, const TestGL& gl) {
     const Target target{gl, 200, 150};
     const auto viewport = makeViewport(200, 150, 200, 150);
@@ -676,6 +734,8 @@ int main() {
         testAtlasGrowth(renderer, gl, font);
         testShapes(renderer, gl);
         testImages(renderer, gl, font);
+        testOverlays(renderer, gl);
+        testPopupRendering(renderer, gl);
         testScrollViewRendering(renderer, gl);
         testSelectionRendering(renderer, gl, font);
         testLineAlignment(renderer, gl, font);
