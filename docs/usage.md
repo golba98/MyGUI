@@ -166,3 +166,166 @@ the last key, button, or text event. Single-frame edges can be brief; use
 `--log-events` to record every transition, including presses and releases within
 the same frame. Logs include event names, coordinates, actions, modifiers, Unicode
 code points, and resize sources.
+
+For redraw-on-demand/native capture diagnostics, see the
+[presentation investigation](presentation-investigation.md) and its opt-in tools.
+
+## Overlays and modal dialogs
+
+`UIContext` owns overlays independently of the ordinary root. Overlay roots fill
+its logical viewport; absolute child bounds use window coordinates. Overlays draw
+after ordinary content and escape its clips, but remain clipped to the viewport.
+Nonmodal overlays draw in opening order, below modal overlays; hit testing uses
+the reverse order. `openOverlay(std::unique_ptr<Container>, OverlayOptions)`
+accepts ordinary widget trees (`modal` defaults to false).
+
+```cpp
+#include <gui/Dialog.hpp>
+#include <gui/TextField.hpp>
+
+auto dialog = std::make_unique<gui::Dialog>("Settings", font);
+auto& field = dialog->content().emplace<gui::TextField>(font, "My name");
+dialog->addAction("save", "Save");
+dialog->addCancelAction();
+auto handle = ui.openDialog(std::move(dialog),
+    [&, input = &field](gui::Dialog&, const gui::DialogResult& result) {
+        status.setText(result.action == "save" ? "Saved: " + input->text()
+                                              : "Cancelled");
+    });
+// Programmatic cancellation, safe even if already closed:
+// ui.closeOverlay(handle);
+```
+
+`content()` is a vertical container inside a scroll view. `actions()` accepts
+existing buttons and containers; `addAction(id, label)` creates a button that
+closes with that identifier. `addCancelAction(label)` closes with no action.
+For custom actions, call `Dialog::close({actionId})` or `close()` to cancel.
+Configure initial content and actions before transferring ownership. References
+follow normal widget lifetime rules; do not retain them after completion.
+
+Dialog sheets center and resize with the viewport. Large content scrolls while
+normal-size title and action areas remain outside the body scroll view. Actions
+stack vertically when their preferred widths cannot fit. At very small sizes,
+the whole sheet scrolls as well, keeping its actions reachable. Theme fields
+`dialogBackdrop`, `dialogPadding`, `dialogSpacing`, and `dialogMargin` supplement
+the existing surface, border, text, corner-radius, and control focus styling.
+
+`setDismissOnEscape(false)` disables the default Escape cancellation.
+`setDismissOnBackdropClick(true)` enables cancellation on a left-button press
+outside the sheet; this is disabled by default. Escape is applied only after
+widgets decline the event. Enter retains the focused control's behavior: a
+text field submits without activating another action. Tab and Shift+Tab are
+reserved for traversal within the top visible modal, skipping hidden, disabled,
+and non-focusable descendants. A childless modal still blocks background input.
+
+Opening a modal cancels background hover, presses, and capture, and saves the
+previous focus. Closing restores it only when still attached, visible, enabled,
+focusable, and allowed by the remaining modal. Otherwise the first eligible
+widget in tree order receives focus, or focus clears. Opening another dialog
+stacks it above the first; closing it returns control to the lower dialog.
+Closing a lower dialog leaves the upper dialog active. Hidden modal roots
+suspend their boundary; disabled visible modal roots continue to block input.
+Window focus loss cancels interaction; regaining focus enters the active modal.
+
+Blocked pointer, wheel, key, and text events return handled, so application
+shortcuts following `handleEvent()` do not run. Window lifecycle events remain
+available to the application. Buttons and keys held across a boundary change
+have their remaining repeats/releases swallowed, preventing dismissal click-through.
+Consuming input solely at the modal boundary does not request redraw. Settled
+dialogs need no continuous frame source.
+
+`OverlayHandle` is copyable and non-owning; dropping it does not close anything.
+`closeOverlay(handle)` returns true only for the first accepted closure.
+Default, stale, foreign-context, and already-closed handles return false;
+`isOverlayOpen(handle)` queries the same ownership identity safely.
+
+Completion receives a `DialogResult` whose optional `action` identifies the
+selected action; an empty value means cancellation, including programmatic,
+Escape, backdrop, and Cancel-button closure. During dispatch, closure cancels
+interaction immediately, then waits until the event route has unwound before
+running completion. The completed dialog and its remaining children stay alive
+through that callback, so reading the text field above is safe. Completion may
+open or close other dialogs. It runs exactly once, including if it throws;
+exceptions propagate after lifecycle cleanup. Destroying a `UIContext` discards
+open dialogs and callbacks **without invoking application callbacks**.
+
+Try `MyGUI_dialogs` for confirmation, editable settings, nested dialogs, and
+background controls that remain inactive while a modal is open.
+
+## Anchored popups and ComboBox
+
+`gui::ComboBox` is a non-editable selection control. Identifiers are unique opaque
+strings; labels can repeat. Disabled items cannot be selected. New controls start
+unselected and display their placeholder.
+
+```cpp
+#include <gui/ComboBox.hpp>
+auto& choice = ui.root().emplace<gui::ComboBox>(font);
+choice.setItems({{"fast", "Fast"}, {"slow", "Slow"}, {"off", "Unavailable", false}});
+choice.setPlaceholder("Choose a mode…");
+choice.setSelectedId("fast"); // Programmatic: no notification.
+choice.setOnChange([&](const gui::ComboBoxItem& item) {
+    status.setText("Selected: " + item.label);
+});
+```
+
+`selectedId()` returns an optional string value; `setSelectedId(std::nullopt)`
+clears it. Unknown or disabled identifiers return false without changing state.
+Valid programmatic selection requests close the popup silently. `setItems()`
+closes the popup and preserves selection only if its identifier still names an
+enabled item. Duplicate identifiers throw `std::invalid_argument` before changing
+anything. Empty and all-disabled lists never open. Labels are sanitized to valid
+UTF-8 using the existing font helpers.
+
+Click, Enter, Space, or Down opens the list. The opening gesture cannot commit.
+Up/Down skip disabled items and stop at the ends; Home/End highlight the first/last
+enabled item. Hover changes only the highlight. Enter or a completed click on an
+enabled row commits; committing a different identifier notifies once, while
+committing the same identifier closes silently. Escape and outside presses
+cancel. Tab/Shift+Tab cancel and traverse focus once. Logical focus remains on the
+ComboBox; rows are not Tab stops. Keyboard navigation scrolls the candidate into
+view. Wheel events over the list never scroll content underneath, even at a limit.
+
+Type-ahead works only while open. Printable `TextInputEvent`s accumulate a prefix
+with a 750 ms timeout. Matching chooses the first enabled label prefix in item
+order, ignores ASCII case, and compares other Unicode code points exactly (no
+Unicode normalization or case folding). A failed match keeps the highlight.
+Repeated letters extend the prefix rather than cycling. The timeout is checked
+on the next text event and never requires continuous redraw. The constructor's
+optional third `TimeSource` argument supplies a `steady_clock::time_point` getter
+for deterministic testing; ordinary applications use the default steady clock.
+
+For reusable hosting, construct `gui::Popup`, populate its `content()` container,
+and call `ui.openPopup(owner, std::move(popup), PopupOptions{})`. The context owns
+it and returns the existing context-specific `OverlayHandle`. `maxHeight` defaults
+to 240 logical units and `gap` to 2. Roots are placed below their owner when they
+fit, or above when that provides more room. Width is at least the owner's width
+and expands toward content preference, capped to the viewport. Height is capped
+by available space and `maxHeight`; overflow uses the existing ScrollView.
+Placement updates after layout, resizing, and ancestor scrolling, outside ancestor
+clips but within the viewport. Nonpositive usable area prevents opening.
+
+One transient popup is active per context; another eligible opening replaces it.
+An unavailable, foreign-context, fully clipped, or modal-blocked owner returns an
+empty handle without replacing an existing popup. Popup descendants cannot own
+another popup. Popups close when their owner becomes unavailable or fully clipped,
+on focus loss, or when focus moves away from the owner. Generic hosts preserve
+logical focus; ComboBox explicitly focuses itself. Popup children receive pointer
+input and capture without taking keyboard focus. Handle closure is idempotent.
+There is no popup completion callback and no teardown notification.
+
+A popup inside a modal draws above that dialog and shares its interaction boundary.
+Opening a newer modal closes the popup in the blocked scope. Escape closes only
+the popup; its repeats/release are consumed, so another Escape is needed to dismiss
+the dialog. Outside presses are consumed with their matching releases; a fresh
+click works normally. Keyboard/text input while the list is open cannot fall
+through to application shortcuts. Wheel input outside the popup may reach other
+permitted content, repositioning or closing the popup as its anchor moves.
+
+Callbacks receive a copied item payload valid through the call. Selection and
+closure finish before notification, allowing callbacks to remove the control or
+its parent, replace items, or open a dialog or another popup. Do not retain item
+references beyond the callback or widget references after removal. Copies of a
+ComboBox retain configuration and committed selection, never an open popup or
+preview state. `MyGUI_combobox` demonstrates long lists, disabled options, modal
+ownership, and edge placement.

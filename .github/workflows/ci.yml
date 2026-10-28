@@ -29,7 +29,7 @@ jobs:
       - name: Demo and example smoke tests from another directory
         run: |
           cd /tmp
-          for example in MyGUI MyGUI_hello MyGUI_layout MyGUI_widgets; do
+          for example in MyGUI MyGUI_hello MyGUI_layout MyGUI_widgets MyGUI_dialogs MyGUI_combobox; do
             xvfb-run -a "$GITHUB_WORKSPACE/build/${{ matrix.preset }}/$example" --frames 3
           done
       - name: Install and build a find_package consumer

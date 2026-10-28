@@ -36,7 +36,7 @@ add_library(MyGUI_core STATIC
     src/Widget.cpp src/Panel.cpp src/Container.cpp src/UIContext.cpp
     src/Font.cpp src/Label.cpp src/Button.cpp src/Image.cpp src/ImageView.cpp
     src/Checkbox.cpp src/Slider.cpp src/ProgressBar.cpp src/ScrollView.cpp
-    src/TextField.cpp
+    src/Popup.cpp src/ComboBox.cpp src/Dialog.cpp src/TextField.cpp
     src/gl/Functions.cpp
 )
 add_library(MyGUI::MyGUI ALIAS MyGUI_core)
@@ -73,6 +73,8 @@ if(MYGUI_BUILD_EXAMPLES)
     mygui_example(MyGUI_hello examples/hello.cpp)
     mygui_example(MyGUI_layout examples/layout.cpp)
     mygui_example(MyGUI_widgets examples/widgets.cpp)
+    mygui_example(MyGUI_dialogs examples/dialogs.cpp)
+    mygui_example(MyGUI_combobox examples/combobox.cpp)
 endif()
 
 if(MYGUI_INSTALL)
@@ -110,6 +112,9 @@ if(MYGUI_TOP_LEVEL AND BUILD_TESTING)
     endfunction()
     mygui_test(MyGUI_tests tests/RendererTests.cpp RendererTests)
     mygui_test(MyGUI_window_tests tests/WindowEventTests.cpp WindowEventTests)
+    mygui_test(MyGUI_popup_tests tests/PopupTests.cpp PopupTests)
+    mygui_test(MyGUI_combobox_tests tests/ComboBoxTests.cpp ComboBoxTests)
+    mygui_test(MyGUI_dialog_tests tests/DialogTests.cpp DialogTests)
     mygui_test(MyGUI_ui_tests tests/UIContextTests.cpp UIContextTests)
     mygui_test(MyGUI_font_tests tests/FontTests.cpp FontTests)
     mygui_test(MyGUI_image_tests tests/ImageTests.cpp ImageTests)
@@ -120,5 +125,5 @@ if(MYGUI_TOP_LEVEL AND BUILD_TESTING)
     mygui_warnings(MyGUI_input_tests)
     add_test(NAME InputEventTests COMMAND MyGUI_input_tests)
     set_tests_properties(RendererTests WindowEventTests PROPERTIES LABELS "display")
-    set_tests_properties(InputEventTests UIContextTests FontTests ImageTests PROPERTIES LABELS "headless")
+    set_tests_properties(PopupTests ComboBoxTests DialogTests InputEventTests UIContextTests FontTests ImageTests PROPERTIES LABELS "headless")
 endif()

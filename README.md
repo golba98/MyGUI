@@ -3,7 +3,9 @@
 A small C++20 GUI library and demo using GLFW, OpenGL 3.3, and FreeType.
 It supports layouts, wrapped text, images, scrolling, themes, and controls
 including buttons, checkboxes, switches, sliders, progress bars, and text fields
-with selection and clipboard support.
+with selection and clipboard support. Viewport overlays and reusable modal dialogs
+support editable content, focus trapping, cancellation, and stacking. Anchored
+popups and non-editable ComboBox controls support scrolling and type-ahead.
 
 ![Widget tree rendered by the library](docs/widgets.png)
 
@@ -142,6 +144,8 @@ Small programs in `examples/` show one topic each and build next to the demo (`-
 
 - `MyGUI_hello` (`examples/hello.cpp`): a label and a button, the minimum setup.
 - `MyGUI_layout` (`examples/layout.cpp`): nested layouts, flex weights and wrapped text that reflows on resize.
+- `MyGUI_combobox` (`examples/combobox.cpp`): anchored lists, disabled choices, and modal integration.
+- `MyGUI_dialogs` (`examples/dialogs.cpp`): confirmation, editable settings, and stacked modal dialogs.
 - `MyGUI_widgets` (`examples/widgets.cpp`): every built-in control inside a scroll view.
 
 `examples/common/Example.hpp` holds their shared font lookup and event loop. Each accepts `--frames N` for smoke tests. The full demo lives in `examples/demo/main.cpp` and builds as `MyGUI`.

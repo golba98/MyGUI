@@ -23,5 +23,7 @@ struct Theme {
     Color selection{0.36f, 0.62f, 0.95f, 0.38f};
     float cornerRadius{6};
     float focusWidth{2};
+    Color dialogBackdrop{0, 0, 0, 0.5f};
+    float dialogPadding{16}, dialogSpacing{12}, dialogMargin{16};
 };
 } // namespace gui
