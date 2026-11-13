@@ -1,0 +1,37 @@
+{
+  "owner": "golba98",
+  "private_git_blobs": [],
+  "private_hashes": [],
+  "private_paths": [
+    ".agents/scratch/",
+    ".agents/teamwork/",
+    ".private/",
+    "docs/_reports/",
+    "docs/tmp/"
+  ],
+  "protected_paths": [
+    ".github/documentation-policy.json",
+    "scripts/check_documentation.py",
+    "scripts/test_documentation_policy.py",
+    ".gitignore",
+    ".npmignore",
+    ".dockerignore",
+    "MANIFEST.in",
+    "scripts/documentation-policy.json",
+    "scripts/check-docs.mjs",
+    "scripts/install-hooks.mjs",
+    "tools/stage-workspace.py",
+    "scripts/package.mjs"
+  ],
+  "public_markdown": {
+    "README.md": "5aa3b406179a1ce9b693feece147cf7d4edda986d0328e4ba9d8c1f1e4422d75",
+    "assets/fonts/SOURCE.md": "35ca816f452a8893fe2290215845192469f5c30c2e03349de4d95c4803bd298e",
+    "docs/presentation-investigation.md": "a9224384ffbaeeb89853f380a51936e1269594b8bdd286c3007a9959213dc6ae",
+    "docs/usage.md": "123829933b0c360e8d652d013876b31e4e8dca8461ca25feacbd885b207b26d7",
+    "tests/diagnostics/README.md": "c30f12f5da37628b67fa33b8954e30fb5fd0ad90bbf5552a8d2fc7e57fd6e157",
+    "third_party/khronos/SOURCE.md": "c6438b1739c045f195a1c269935707eeb358240afdc26ad582db68079dbfd850",
+    "third_party/stb/SOURCE.md": "b4bb9926cb29f02f9df4a90c27eae3eb44cd924409ba1a0847e6bcd60914f9f5"
+  },
+  "repository": "golba98/MyGUI",
+  "version": 1
+}
